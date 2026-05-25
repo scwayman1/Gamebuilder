@@ -40,7 +40,7 @@ export const PlanSchema = z.object({
           .regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "id must be a JS identifier"),
         label: z.string(),
         unit: z.string(),
-        isPrimary: z.boolean().optional(),
+        isPrimary: z.boolean(),
         intent: z
           .string()
           .describe(
@@ -59,7 +59,7 @@ export const MechanicOutcomeSchema = z.object({
   label: z.string(),
   unit: z.string(),
   formula: z.string(),
-  isPrimary: z.boolean().optional(),
+  isPrimary: z.boolean(),
 });
 
 export const MechanicSchema = z.object({
@@ -106,7 +106,12 @@ export const ReviewSchema = z.object({
 export type Review = z.infer<typeof ReviewSchema>;
 
 // ---- Engine telemetry ----
-export type StageName = "planner" | "mechanic" | "writer" | "reviewer";
+export type StageName =
+  | "planner"
+  | "mechanic"
+  | "writer"
+  | "reviewer"
+  | "fallback-single-shot";
 
 export type StageRun = {
   name: StageName;

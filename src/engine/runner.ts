@@ -30,8 +30,21 @@ import {
   type StageRun,
 } from "./types";
 
-const MODEL = "gpt-4o-mini";
+const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+const FALLBACK_MODEL = process.env.OPENAI_FALLBACK_MODEL ?? "gpt-4o";
 const MAX_REVISIONS = 1;
+
+class StageError extends Error {
+  constructor(
+    public stage: StageRun["name"],
+    public cause: unknown,
+  ) {
+    super(
+      `Stage "${stage}" failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+    this.name = "StageError";
+  }
+}
 
 export type EngineResult =
   | { ok: true; blueprint: Blueprint; meta: EngineMeta }
@@ -66,7 +79,7 @@ async function runStage<T>(
       ok: false,
       error,
     });
-    throw err;
+    throw new StageError(name, err);
   }
 }
 
@@ -339,18 +352,99 @@ export async function runEngine(
       },
     };
   } catch (err) {
-    const error = err instanceof Error ? err.message : "Engine failed";
-    return {
-      ok: false,
-      error,
-      meta: {
-        totalLatencyMs: Date.now() - t0,
-        stages,
-        revisionCount: 0,
-        review: null,
-        residualIssues: [],
-        keyFingerprint,
-      },
-    };
+    const stageName =
+      err instanceof StageError ? err.stage : ("(unknown)" as const);
+    const stageMessage = err instanceof Error ? err.message : "Engine failed";
+    console.warn(
+      `[engine] multi-stage path failed at "${stageName}": ${stageMessage}. Falling back to single-shot.`,
+    );
+
+    // Fallback: ask one model in one call to produce the whole blueprint.
+    // Slower upgrade to gpt-4o by default for the rescue path.
+    try {
+      const fallbackStart = Date.now();
+      const { object } = await generateObject({
+        model: openai(FALLBACK_MODEL),
+        schema: BlueprintSchema,
+        system: SINGLE_SHOT_SYSTEM,
+        prompt: SINGLE_SHOT_USER(brief),
+        temperature: 0.4,
+        maxRetries: 1,
+      });
+      stages.push({
+        name: "fallback-single-shot",
+        model: FALLBACK_MODEL,
+        latencyMs: Date.now() - fallbackStart,
+        attempt: 1,
+        ok: true,
+      });
+      const residualIssues = validateBlueprint(object);
+      return {
+        ok: true,
+        blueprint: object,
+        meta: {
+          totalLatencyMs: Date.now() - t0,
+          stages,
+          revisionCount: 0,
+          review: null,
+          residualIssues,
+          keyFingerprint,
+        },
+      };
+    } catch (fallbackErr) {
+      const fallbackMessage =
+        fallbackErr instanceof Error ? fallbackErr.message : "Fallback failed";
+      stages.push({
+        name: "fallback-single-shot",
+        model: FALLBACK_MODEL,
+        latencyMs: 0,
+        attempt: 1,
+        ok: false,
+        error: fallbackMessage,
+      });
+      return {
+        ok: false,
+        error: `Stage "${stageName}": ${stageMessage}. Fallback also failed: ${fallbackMessage}`,
+        meta: {
+          totalLatencyMs: Date.now() - t0,
+          stages,
+          revisionCount: 0,
+          review: null,
+          residualIssues: [],
+          keyFingerprint,
+        },
+      };
+    }
   }
+}
+
+const SINGLE_SHOT_SYSTEM = `You are a rescue path for the AB Studios learning module engine. The multi-stage pipeline failed; produce the entire blueprint in one structured response.
+
+Constraints:
+- Tailor to the topic in the brief. No defaulting to paper airplanes.
+- 2–5 learning objectives.
+- 3–5 variables; camelCase ids; min < default < max; include a kid-friendly studentExplanation per variable.
+- 2–4 outcomes; for each: id (camelCase), label, unit, formula (JS expression using only the variable ids + Math.* + arithmetic), and isPrimary (boolean, exactly one true across the array).
+- Outcomes' formulas must evaluate to a finite number at every (min, default, max) combination of variables. Use Math.max(0, …) to guard.
+- Pick visualizationKind: 'projectile' for distance/range topics, 'bars' otherwise.
+- 1–4 scenes, 3–6 tips, 3–6 assessments, 2–6 vocabulary terms, 2–5 teacherPrep instructions.
+- No preamble, no markdown — only the structured object.`;
+
+function SINGLE_SHOT_USER(brief: EngineBrief): string {
+  return `Lesson brief:\n\n${[
+    `Topic: ${brief.topic}`,
+    `Grade band: ${brief.gradeBand}`,
+    `Subject: ${brief.subject}`,
+    `Learning objective: ${brief.learningObjective}`,
+    `Companion type: ${brief.companionType}`,
+    `Time available: ${brief.durationMinutes} minutes`,
+    brief.tone ? `Tone: ${brief.tone}` : "",
+    brief.standards ? `Required standards: ${brief.standards}` : "",
+    brief.classroomConstraints
+      ? `Classroom constraints: ${brief.classroomConstraints}`
+      : "",
+    brief.sourceMaterial ? `Source material:\n${brief.sourceMaterial}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n")}\n\nProduce the complete blueprint.`;
 }

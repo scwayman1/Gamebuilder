@@ -94,6 +94,7 @@ export const paperAirplaneBlueprint: Blueprint = {
       unit: "s",
       formula:
         "Math.max(0.2, (Math.sin(wingAngle*Math.PI/180*1.6)*3 + 0.6 - (noseWeight/100)*1.2) * (0.7 + (throwPower/60)*0.3))",
+      isPrimary: false,
     },
     {
       id: "stability",
@@ -101,6 +102,7 @@ export const paperAirplaneBlueprint: Blueprint = {
       unit: "%",
       formula:
         "Math.max(0, Math.min(100, (0.7 + ((noseWeight/100)-0.25)*0.6 - Math.abs(wingAngle-12)/40)*100))",
+      isPrimary: false,
     },
   ],
   tips: [

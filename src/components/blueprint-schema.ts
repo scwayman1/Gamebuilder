@@ -23,9 +23,8 @@ export const OutcomeSchema = z.object({
     ),
   isPrimary: z
     .boolean()
-    .optional()
     .describe(
-      "Mark exactly one outcome as primary — the one shown as the trajectory peak/distance in the visualization.",
+      "Exactly one outcome in the blueprint must be true — the one shown as the trajectory peak/distance in the visualization. All others must be false.",
     ),
 });
 

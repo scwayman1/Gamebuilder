@@ -111,7 +111,14 @@ export function loadBlueprint(runId: string): Blueprint | null {
   const raw = window.localStorage.getItem(BLUEPRINT_PREFIX + runId);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as Blueprint;
+    const parsed = JSON.parse(raw) as Blueprint;
+    // Coerce missing isPrimary -> false (older blueprints from before the
+    // schema tightened to require this field).
+    parsed.outcomes = parsed.outcomes.map((o) => ({
+      ...o,
+      isPrimary: o.isPrimary === true,
+    }));
+    return parsed;
   } catch {
     return null;
   }
