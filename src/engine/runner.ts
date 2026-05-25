@@ -1,6 +1,8 @@
 import {
   type Blueprint,
   BlueprintSchema,
+  evalFormula,
+  isFormulaSafe,
   validateBlueprint,
 } from "@/components/blueprint-schema";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -134,10 +136,71 @@ function runMechanic(
         temperature: attempt === 1 ? 0.4 : 0.2,
         maxRetries: 1,
       });
+      // Reject mechanics with broken formulas so the fallback path can rescue.
+      // The LLM commonly references an identifier that doesn't match a
+      // declared variable id, producing NaN at every sample.
+      const formulaProblems = validateMechanicFormulas(object);
+      if (formulaProblems.length > 0) {
+        throw new Error(
+          `Mechanic produced ${formulaProblems.length} broken formula(s): ${formulaProblems.join("; ")}`,
+        );
+      }
       return object;
     },
     stages,
   );
+}
+
+function validateMechanicFormulas(mechanic: Mechanic): string[] {
+  const ids = new Set(mechanic.variables.map((v) => v.id));
+  const problems: string[] = [];
+  for (const o of mechanic.outcomes) {
+    if (!isFormulaSafe(o.formula)) {
+      problems.push(
+        `${o.id}: formula contains disallowed tokens (only var ids, numbers, Math.*, + - * / parens allowed): "${o.formula}"`,
+      );
+      continue;
+    }
+    // Find every bareword identifier the formula references and verify it
+    // exists in the variables list (or is "Math").
+    const idents = new Set(o.formula.match(/[a-zA-Z_][a-zA-Z0-9_]*/g) ?? []);
+    const unknown = [...idents].filter((i) => i !== "Math" && !ids.has(i));
+    if (unknown.length > 0) {
+      problems.push(
+        `${o.id}: references unknown identifier(s) [${unknown.join(", ")}]. Variables available: [${[...ids].join(", ")}]. Formula was: "${o.formula}"`,
+      );
+      continue;
+    }
+    // Sample-grid sanity check.
+    const samples: Array<Record<string, number>> = [];
+    const points = mechanic.variables.map((v) => [v.min, v.default, v.max]);
+    let combos: number[][] = [[]];
+    for (const dim of points) {
+      const next: number[][] = [];
+      for (const c of combos) for (const p of dim) next.push([...c, p]);
+      combos = next;
+      if (combos.length > 27) {
+        combos = combos.slice(0, 27);
+        break;
+      }
+    }
+    for (const c of combos) {
+      const s: Record<string, number> = {};
+      mechanic.variables.forEach((v, i) => {
+        s[v.id] = c[i] ?? v.default;
+      });
+      samples.push(s);
+    }
+    const finite = samples.filter((s) =>
+      Number.isFinite(evalFormula(o.formula, s)),
+    ).length;
+    if (finite === 0) {
+      problems.push(
+        `${o.id}: formula never produces a finite number across the variable sample grid. Formula was: "${o.formula}"`,
+      );
+    }
+  }
+  return problems;
 }
 
 function runWriter(
