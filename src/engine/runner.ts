@@ -443,6 +443,7 @@ export async function runEngine(
   const stages: StageRun[] = [];
   const keyFingerprint = maskKey(apiKey);
   const openai = createOpenAI({ apiKey });
+  const partial: { plan?: Plan; mechanic?: Mechanic; content?: Content } = {};
 
   try {
     // Sequential pipeline: each stage depends on the previous one. We could
@@ -450,7 +451,9 @@ export async function runEngine(
     // in parallel), but at this granularity sequential is cheaper and more
     // observable.
     let plan = await runPlanner(openai, brief, null, stages, 1);
+    partial.plan = plan;
     let mechanic = await runMechanic(openai, brief, plan, null, stages, 1);
+    partial.mechanic = mechanic;
     let content = await runWriter(
       openai,
       brief,
@@ -460,6 +463,7 @@ export async function runEngine(
       stages,
       1,
     );
+    partial.content = content;
 
     // Stage 4: Reviewer
     let review = await runReviewer(
@@ -561,15 +565,16 @@ export async function runEngine(
       `[engine] multi-stage path failed at "${stageName}": ${stageMessage}. Falling back to single-shot.`,
     );
 
-    // Fallback: ask one model in one call to produce the whole blueprint.
-    // Slower upgrade to gpt-4o by default for the rescue path.
+    // Fallback: ask one model in one call to produce the whole blueprint,
+    // seeded with any partial intermediate state we already have. The model
+    // upgrades to gpt-4o by default for the rescue path.
     try {
       const fallbackStart = Date.now();
       const { object } = await generateObject({
         model: openai(FALLBACK_MODEL),
         schema: BlueprintSchema,
         system: SINGLE_SHOT_SYSTEM,
-        prompt: SINGLE_SHOT_USER(brief),
+        prompt: SINGLE_SHOT_USER(brief, partial),
         temperature: 0.4,
         maxRetries: 1,
       });
@@ -632,8 +637,11 @@ Constraints:
 - 1–4 scenes, 3–6 tips, 3–6 assessments, 2–6 vocabulary terms, 2–5 teacherPrep instructions.
 - No preamble, no markdown — only the structured object.`;
 
-function SINGLE_SHOT_USER(brief: EngineBrief): string {
-  return `Lesson brief:\n\n${[
+function SINGLE_SHOT_USER(
+  brief: EngineBrief,
+  partial: { plan?: Plan; mechanic?: Mechanic; content?: Content },
+): string {
+  const briefBlock = [
     `Topic: ${brief.topic}`,
     `Grade band: ${brief.gradeBand}`,
     `Subject: ${brief.subject}`,
@@ -648,5 +656,53 @@ function SINGLE_SHOT_USER(brief: EngineBrief): string {
     brief.sourceMaterial ? `Source material:\n${brief.sourceMaterial}` : "",
   ]
     .filter(Boolean)
-    .join("\n")}\n\nProduce the complete blueprint.`;
+    .join("\n");
+
+  // Splice in whatever partial state survived the multi-stage attempt. This
+  // anchors the fallback so it doesn't drift away from work the Planner /
+  // Mechanic / Writer already did.
+  const partialBlocks: string[] = [];
+  if (partial.plan) {
+    partialBlocks.push(
+      `Planner output to PRESERVE (use these exact ids, visualizationKind, scenes, learningObjectives, standards):\n${JSON.stringify(
+        {
+          moduleTitle: partial.plan.moduleTitle,
+          template: partial.plan.template,
+          visualizationKind: partial.plan.visualizationKind,
+          learningObjectives: partial.plan.learningObjectives,
+          standards: partial.plan.standards,
+          scenes: partial.plan.scenes,
+          variableSeeds: partial.plan.variableSeeds,
+          outcomeSeeds: partial.plan.outcomeSeeds,
+        },
+        null,
+        2,
+      )}`,
+    );
+  }
+  if (partial.mechanic) {
+    partialBlocks.push(
+      `Mechanic output to PRESERVE (use these exact variable ids + ranges and outcome ids + units; only revise broken formulas):\n${JSON.stringify(
+        partial.mechanic,
+        null,
+        2,
+      )}`,
+    );
+  }
+  if (partial.content) {
+    partialBlocks.push(
+      `Content writer output to PRESERVE (keep this copy verbatim where possible):\n${JSON.stringify(
+        partial.content,
+        null,
+        2,
+      )}`,
+    );
+  }
+
+  const partialSection =
+    partialBlocks.length > 0
+      ? `\n\n---\n${partialBlocks.join("\n\n---\n")}\n\n---`
+      : "";
+
+  return `Lesson brief:\n\n${briefBlock}${partialSection}\n\nProduce the complete blueprint, anchored on whatever partial output is shown above. Fix only what's broken.`;
 }
