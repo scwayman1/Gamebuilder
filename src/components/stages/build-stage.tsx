@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import {
   type Blueprint,
   evalFormula,
+  inferVisualizationKind,
   validateBlueprint,
 } from "../blueprint-schema";
 
@@ -101,15 +102,13 @@ const tasks: TaskDef[] = [
     label: "Selecting visual primitives",
     run: (bp) => {
       const primary = bp.outcomes.find((o) => o.isPrimary);
-      const visKind = primary?.unit?.match(/m|ft|km|mi/)
-        ? "projectile arc"
-        : primary?.unit === "%"
-          ? "intensity bars"
-          : "abstract arc";
-      return {
-        status: "pass",
-        detail: `Picked "${visKind}" template for primary outcome (${primary?.label ?? "—"})`,
-      };
+      // Use the same picker SimulationLab uses so the displayed name
+      // matches what the user actually sees on the Preview stage.
+      const kind = inferVisualizationKind(bp);
+      const detail = bp.visualizationKind
+        ? `Planner set visualizationKind="${kind}"; primary outcome ${primary?.label ?? "—"} (${primary?.unit ?? ""})`
+        : `Inferred visualizationKind="${kind}" from primary outcome ${primary?.label ?? "—"} (${primary?.unit ?? ""})`;
+      return { status: "pass", detail };
     },
   },
   {

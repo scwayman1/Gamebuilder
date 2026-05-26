@@ -74,9 +74,27 @@ export function BriefForm() {
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // Trim everything; reject whitespace-only critical fields.
+    const trimmed: BriefInput = {
+      ...brief,
+      topic: brief.topic.trim(),
+      subject: brief.subject.trim(),
+      learningObjective: brief.learningObjective.trim(),
+      sourceMaterial: brief.sourceMaterial.trim(),
+      classroomConstraints: brief.classroomConstraints.trim(),
+      standards: brief.standards.trim(),
+      tone: brief.tone.trim(),
+      similarModules: brief.similarModules.trim(),
+    };
+    if (!trimmed.topic || !trimmed.learningObjective) {
+      // The required attrs already block this in modern browsers, but a
+      // user pasting whitespace gets through. Force them to fix it.
+      setBrief(trimmed);
+      return;
+    }
     setSubmitting(true);
     const id = createRunId();
-    saveBrief(id, brief);
+    saveBrief(id, trimmed);
     router.push(`/run/${id}`);
   };
 

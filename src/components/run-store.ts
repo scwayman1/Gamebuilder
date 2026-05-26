@@ -1,6 +1,6 @@
 "use client";
 
-import type { Blueprint } from "./blueprint-schema";
+import { type Blueprint, BlueprintSchema } from "./blueprint-schema";
 import { paperAirplaneBlueprint } from "./mock-blueprint";
 
 export type BriefInput = {
@@ -110,14 +110,26 @@ export function loadBlueprint(runId: string): Blueprint | null {
   const raw = window.localStorage.getItem(BLUEPRINT_PREFIX + runId);
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as Blueprint;
+    const rawParsed = JSON.parse(raw) as Partial<Blueprint> & {
+      outcomes?: Array<Partial<Blueprint["outcomes"][number]>>;
+    };
     // Coerce missing isPrimary -> false (older blueprints from before the
     // schema tightened to require this field).
-    parsed.outcomes = parsed.outcomes.map((o) => ({
-      ...o,
-      isPrimary: o.isPrimary === true,
-    }));
-    return parsed;
+    if (rawParsed.outcomes) {
+      rawParsed.outcomes = rawParsed.outcomes.map((o) => ({
+        ...o,
+        isPrimary: o.isPrimary === true,
+      }));
+    }
+    const validated = BlueprintSchema.safeParse(rawParsed);
+    if (!validated.success) {
+      console.warn(
+        `[run-store] stored blueprint failed schema parse (run=${runId}):`,
+        validated.error.message,
+      );
+      return null;
+    }
+    return validated.data;
   } catch {
     return null;
   }
