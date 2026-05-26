@@ -92,6 +92,7 @@ export function BriefForm() {
               required
               value={brief.topic}
               onChange={(e) => update("topic", e.target.value)}
+              placeholder="e.g. Throwing a football, Ecosystem balance, Levers"
               className={inputCls}
             />
           </Field>
@@ -110,6 +111,7 @@ export function BriefForm() {
             <input
               value={brief.subject}
               onChange={(e) => update("subject", e.target.value)}
+              placeholder="e.g. STEM · Physical Science"
               className={inputCls}
             />
           </Field>
@@ -134,6 +136,7 @@ export function BriefForm() {
                 required
                 value={brief.learningObjective}
                 onChange={(e) => update("learningObjective", e.target.value)}
+                placeholder="e.g. Students learn how predator and prey populations balance each other, and how disturbances shift that balance."
                 className={textareaCls}
               />
             </Field>

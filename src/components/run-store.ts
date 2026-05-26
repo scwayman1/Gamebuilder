@@ -19,16 +19,15 @@ export type BriefInput = {
 };
 
 export const defaultBrief: BriefInput = {
-  topic: "Paper airplane flight",
+  topic: "",
   gradeBand: "3–5",
-  subject: "STEM · Physical Science",
-  learningObjective:
-    "Students learn thrust, drag, lift, and center of gravity by folding planes, changing variables, and comparing outcomes.",
-  sourceMaterial: "Existing unit on forces and motion.",
-  companionType: "Simulation Lab + Build-and-Test Activity",
+  subject: "",
+  learningObjective: "",
+  sourceMaterial: "",
+  companionType: "Simulation Lab",
   durationMinutes: 20,
-  classroomConstraints: "Tablet-friendly, 6m clear runway available.",
-  standards: "NGSS 3-PS2-1, 3-5-ETS1-3",
+  classroomConstraints: "",
+  standards: "",
   tone: "Playful, curious, classroom-safe.",
   accessibility: ["Keyboard nav", "High-contrast", "Reduced motion"],
   similarModules: "",
