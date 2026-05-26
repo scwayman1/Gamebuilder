@@ -125,30 +125,114 @@ function runMechanic(
     "mechanic",
     attempt,
     async () => {
-      const prompt =
+      const baseUserPrompt =
         mechanicUserPrompt(brief, plan) +
         (prior ? revisionInstruction("mechanic", prior) : "");
-      const { object } = await generateObject({
-        model: openai(MODEL),
-        schema: MechanicSchema,
-        system: MECHANIC_SYSTEM,
-        prompt,
-        temperature: attempt === 1 ? 0.4 : 0.2,
-        maxRetries: 1,
-      });
-      // Reject mechanics with broken formulas so the fallback path can rescue.
-      // The LLM commonly references an identifier that doesn't match a
-      // declared variable id, producing NaN at every sample.
-      const formulaProblems = validateMechanicFormulas(object);
-      if (formulaProblems.length > 0) {
-        throw new Error(
-          `Mechanic produced ${formulaProblems.length} broken formula(s): ${formulaProblems.join("; ")}`,
-        );
+
+      // Up to two model calls: first attempt, then one feedback-driven repair
+      // if the validator catches problems (id drift, dup ids, NaN formula, …).
+      let lastObject: Mechanic | null = null;
+      let lastProblems: string[] = [];
+      for (let i = 0; i < 2; i++) {
+        const prompt =
+          i === 0
+            ? baseUserPrompt
+            : `${baseUserPrompt}\n\n---\nYour previous output had ${lastProblems.length} problem(s). Fix EACH one in this revision; do not change anything else:\n${lastProblems
+                .map((p, n) => `${n + 1}. ${p}`)
+                .join("\n")}`;
+        const { object } = await generateObject({
+          model: openai(MODEL),
+          schema: MechanicSchema,
+          system: MECHANIC_SYSTEM,
+          prompt,
+          temperature: i === 0 && attempt === 1 ? 0.4 : 0.2,
+          maxRetries: 1,
+        });
+        const problems = validateMechanic(object, plan);
+        if (problems.length === 0) return object;
+        lastObject = object;
+        lastProblems = problems;
       }
-      return object;
+      throw new Error(
+        `Mechanic produced ${lastProblems.length} problem(s) after self-repair: ${lastProblems.join("; ")}. Last output had ${lastObject?.variables.length ?? 0} variables, ${lastObject?.outcomes.length ?? 0} outcomes.`,
+      );
     },
     stages,
   );
+}
+
+function validateMechanic(mechanic: Mechanic, plan: Plan): string[] {
+  const problems: string[] = [];
+  const varIds = mechanic.variables.map((v) => v.id);
+  const outcomeIds = mechanic.outcomes.map((o) => o.id);
+
+  // 1. Duplicate ids
+  const dupVar = duplicates(varIds);
+  if (dupVar.length > 0) {
+    problems.push(
+      `Duplicate variable id(s): [${dupVar.join(", ")}]. Each variable must have a unique id.`,
+    );
+  }
+  const dupOutcome = duplicates(outcomeIds);
+  if (dupOutcome.length > 0) {
+    problems.push(
+      `Duplicate outcome id(s): [${dupOutcome.join(", ")}]. Each outcome must have a unique id.`,
+    );
+  }
+
+  // 2. Id drift from the Planner's seeds. The Mechanic was instructed to
+  // use exactly the seed ids. Drift is a common LLM failure.
+  const seedVarIds = new Set(plan.variableSeeds.map((v) => v.id));
+  const seedOutcomeIds = new Set(plan.outcomeSeeds.map((o) => o.id));
+  const driftedVars = varIds.filter((id) => !seedVarIds.has(id));
+  if (driftedVars.length > 0) {
+    problems.push(
+      `Variable id(s) not in the Planner's variableSeeds: [${driftedVars.join(", ")}]. Use exactly these ids: [${[...seedVarIds].join(", ")}].`,
+    );
+  }
+  const driftedOutcomes = outcomeIds.filter((id) => !seedOutcomeIds.has(id));
+  if (driftedOutcomes.length > 0) {
+    problems.push(
+      `Outcome id(s) not in the Planner's outcomeSeeds: [${driftedOutcomes.join(", ")}]. Use exactly these ids: [${[...seedOutcomeIds].join(", ")}].`,
+    );
+  }
+
+  // 3. Exactly one primary outcome.
+  const primaryCount = mechanic.outcomes.filter((o) => o.isPrimary).length;
+  if (primaryCount !== 1) {
+    problems.push(
+      `Exactly one outcome must have isPrimary:true. Found ${primaryCount}.`,
+    );
+  }
+
+  // 4. Variable range sanity.
+  for (const v of mechanic.variables) {
+    if (!(v.min < v.max)) {
+      problems.push(
+        `Variable ${v.id}: min (${v.min}) must be < max (${v.max}).`,
+      );
+    }
+    if (v.default < v.min || v.default > v.max) {
+      problems.push(
+        `Variable ${v.id}: default (${v.default}) must be in [${v.min}, ${v.max}].`,
+      );
+    }
+  }
+
+  // 5. Formula sanity (per-outcome).
+  problems.push(...validateMechanicFormulas(mechanic));
+
+  return problems;
+}
+
+function duplicates(ids: string[]): string[] {
+  const seen = new Set<string>();
+  const dup = new Set<string>();
+  for (const id of ids) {
+    if (seen.has(id)) dup.add(id);
+    else seen.add(id);
+  }
+  return [...dup];
 }
 
 function validateMechanicFormulas(mechanic: Mechanic): string[] {
