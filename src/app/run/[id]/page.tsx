@@ -182,6 +182,7 @@ export default function RunPage() {
           ) : stage === "qa" ? (
             <QaStage
               blueprint={blueprint}
+              review={genMeta?.review}
               onNext={() => advance("publish", "qa")}
             />
           ) : (
