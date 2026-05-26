@@ -134,21 +134,33 @@ export const REVIEWER_SYSTEM = `You are the Reviewer stage of the AB Studios lea
 Goal: critique the assembled blueprint against the brief and decide whether it can ship.
 
 Rules:
-- Score 0–10 on: pedagogy (does the mechanic teach the objective?), mechanic (are formulas sensible?), copy (clear, on-grade, on-brand?), classroomFit (realistic for the constraints?).
+- Score 0–10 on: pedagogy (does the mechanic teach the objective?), mechanic (are formulas sensible and do the SAMPLED OUTPUTS shown to you span a meaningful range?), copy (clear, on-grade, on-brand?), classroomFit (realistic for the constraints?).
 - Verdict:
   - "approve" if every score >= 6 and there are no blockers.
   - "revise" if 1–3 issues that can be fixed by re-running specific stages.
   - "reject" if pedagogically off-target or factually unsound such that revision can't fix.
+- BLOCKERS (mark as severity:"blocker" and verdict:"revise"):
+  - Any outcome is identical or near-identical across the sample inputs shown — that means moving sliders does nothing, the mechanic is broken.
+  - Any outcome stays at 0 across all samples — the mechanic produces no signal.
+  - Primary outcome is implausible for the topic (e.g., negative distance, distances in millions of meters).
+  - Student intro defaults to paper airplanes when the topic is not paper airplanes.
 - Critiques: for each problem, name the stage (planner|mechanic|writer), severity (nit|issue|blocker), the problem, and a concrete suggestion the targeted stage can act on.
 - Summary: one-sentence overall judgment for a human reviewer.
 
 Output the review object only.`;
+
+export type SampleEvaluation = {
+  label: string; // e.g. "defaults", "all-min", "throwPower at max"
+  variables: Record<string, number>;
+  outcomes: Record<string, number | "NaN">;
+};
 
 export function reviewerUserPrompt(
   brief: EngineBrief,
   plan: Plan,
   mechanic: Mechanic,
   content: { studentIntro: string; assessments: string[]; tips: string[] },
+  samples: SampleEvaluation[],
 ): string {
   return `Brief:\n${describeBrief(brief)}\n\n---\nAssembled blueprint:\n${JSON.stringify(
     {
@@ -166,7 +178,7 @@ export function reviewerUserPrompt(
     },
     null,
     2,
-  )}\n\nReview it.`;
+  )}\n\n---\nSAMPLED OUTPUTS (the engine evaluated the formulas at these slider positions; use this to judge whether outcomes actually vary):\n${JSON.stringify(samples, null, 2)}\n\nReview it.`;
 }
 
 // Used when re-running a stage with critic feedback

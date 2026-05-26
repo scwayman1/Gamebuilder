@@ -11,6 +11,7 @@ import {
   MECHANIC_SYSTEM,
   PLANNER_SYSTEM,
   REVIEWER_SYSTEM,
+  type SampleEvaluation,
   WRITER_SYSTEM,
   mechanicUserPrompt,
   plannerUserPrompt,
@@ -330,11 +331,12 @@ function runReviewer(
     "reviewer",
     attempt,
     async () => {
+      const samples = buildSampleEvaluations(mechanic);
       const { object } = await generateObject({
         model: openai(MODEL),
         schema: ReviewSchema,
         system: REVIEWER_SYSTEM,
-        prompt: reviewerUserPrompt(brief, plan, mechanic, content),
+        prompt: reviewerUserPrompt(brief, plan, mechanic, content, samples),
         temperature: 0.2,
         maxRetries: 1,
       });
@@ -342,6 +344,61 @@ function runReviewer(
     },
     stages,
   );
+}
+
+function buildSampleEvaluations(
+  mechanic: Mechanic,
+): SampleEvaluation[] {
+  const samples: SampleEvaluation[] = [];
+
+  const defaults: Record<string, number> = {};
+  for (const v of mechanic.variables) defaults[v.id] = v.default;
+  samples.push({
+    label: "defaults",
+    variables: { ...defaults },
+    outcomes: evalAll(mechanic, defaults),
+  });
+
+  const allMin: Record<string, number> = {};
+  const allMax: Record<string, number> = {};
+  for (const v of mechanic.variables) {
+    allMin[v.id] = v.min;
+    allMax[v.id] = v.max;
+  }
+  samples.push({
+    label: "all-min",
+    variables: { ...allMin },
+    outcomes: evalAll(mechanic, allMin),
+  });
+  samples.push({
+    label: "all-max",
+    variables: { ...allMax },
+    outcomes: evalAll(mechanic, allMax),
+  });
+
+  // Per-variable swept-to-max sample to show the influence of each variable.
+  for (const v of mechanic.variables) {
+    const swept: Record<string, number> = { ...defaults, [v.id]: v.max };
+    samples.push({
+      label: `${v.id} at max (others default)`,
+      variables: swept,
+      outcomes: evalAll(mechanic, swept),
+    });
+  }
+
+  return samples;
+}
+
+function evalAll(
+  mechanic: Mechanic,
+  vars: Record<string, number>,
+): Record<string, number | "NaN"> {
+  const out: Record<string, number | "NaN"> = {};
+  for (const o of mechanic.outcomes) {
+    const v = evalFormula(o.formula, vars);
+    out[o.id] = Number.isFinite(v) ? Number(v.toFixed(3)) : "NaN";
+  }
+  return out;
 }
 
 function assemble(plan: Plan, mechanic: Mechanic, content: Content): Blueprint {
