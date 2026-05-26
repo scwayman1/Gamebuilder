@@ -346,9 +346,7 @@ function runReviewer(
   );
 }
 
-function buildSampleEvaluations(
-  mechanic: Mechanic,
-): SampleEvaluation[] {
+function buildSampleEvaluations(mechanic: Mechanic): SampleEvaluation[] {
   const samples: SampleEvaluation[] = [];
 
   const defaults: Record<string, number> = {};
