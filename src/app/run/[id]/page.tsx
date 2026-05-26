@@ -167,6 +167,7 @@ export default function RunPage() {
                 setBlueprint(next);
                 saveBlueprint(runId, next);
               }}
+              onRegenerate={retry}
             />
           ) : stage === "build" ? (
             <BuildStage

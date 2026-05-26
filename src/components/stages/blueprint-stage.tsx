@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, Check, Pencil, Plus, X } from "lucide-react";
+import { AlertTriangle, Check, Pencil, Plus, RefreshCw, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   type Blueprint,
@@ -39,10 +39,12 @@ export function BlueprintStage({
   blueprint,
   onApprove,
   onUpdate,
+  onRegenerate,
 }: {
   blueprint: Blueprint;
   onApprove: () => void;
   onUpdate?: (next: Blueprint) => void;
+  onRegenerate?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Blueprint>(blueprint);
@@ -106,10 +108,31 @@ export function BlueprintStage({
               <Badge variant="outline">{blueprint.durationMinutes} min</Badge>
             </div>
           </div>
-          <Button variant="outline" size="sm" onClick={startEdit}>
-            <Pencil className="size-3.5" />
-            Edit
-          </Button>
+          <div className="flex gap-2">
+            {onRegenerate ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      "Discard this blueprint and ask the model again? Any edits will be lost.",
+                    )
+                  ) {
+                    onRegenerate();
+                  }
+                }}
+                tooltip="Discard and re-run the engine"
+              >
+                <RefreshCw className="size-3.5" />
+                Regenerate
+              </Button>
+            ) : null}
+            <Button variant="outline" size="sm" onClick={startEdit}>
+              <Pencil className="size-3.5" />
+              Edit
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-5">
           <Section title="Student intro">{blueprint.studentIntro}</Section>
