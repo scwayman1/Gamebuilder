@@ -69,9 +69,14 @@ export default function RunPage() {
         setGenMeta(meta);
         saveBlueprint(runId, bp);
       })
-      .catch((e: unknown) =>
-        setGenError(e instanceof Error ? e.message : "Generation failed"),
-      );
+      .catch((e: unknown) => {
+        if (e instanceof GenerationError) {
+          setGenError(e.message);
+          if (e.meta) setGenMeta(e.meta);
+        } else {
+          setGenError(e instanceof Error ? e.message : "Generation failed");
+        }
+      });
   }, [runId]);
 
   const advance = (to: StageId, from: StageId) => {
@@ -94,9 +99,14 @@ export default function RunPage() {
         setGenMeta(meta);
         saveBlueprint(runId, bp);
       })
-      .catch((e: unknown) =>
-        setGenError(e instanceof Error ? e.message : "Generation failed"),
-      );
+      .catch((e: unknown) => {
+        if (e instanceof GenerationError) {
+          setGenError(e.message);
+          if (e.meta) setGenMeta(e.meta);
+        } else {
+          setGenError(e instanceof Error ? e.message : "Generation failed");
+        }
+      });
   };
 
   return (
@@ -138,6 +148,10 @@ export default function RunPage() {
           }}
         />
       </div>
+
+      {genMeta && genMeta.stages.length > 0 ? (
+        <StageTimeline meta={genMeta} defaultOpen={!!genError} />
+      ) : null}
 
       {!blueprint && !genError ? (
         <GeneratingState topic={brief.topic} />
@@ -187,6 +201,17 @@ const EMPTY_META: EngineMeta = {
   keyFingerprint: "",
 };
 
+class GenerationError extends Error {
+  constructor(
+    message: string,
+    public meta: EngineMeta | null,
+    public keyFingerprint?: string,
+  ) {
+    super(message);
+    this.name = "GenerationError";
+  }
+}
+
 async function generateBlueprint(
   brief: BriefInput,
 ): Promise<{ blueprint: Blueprint; meta: EngineMeta }> {
@@ -199,11 +224,13 @@ async function generateBlueprint(
     const body = (await res.json().catch(() => ({}))) as {
       error?: string;
       keyFingerprint?: string;
+      meta?: EngineMeta;
     };
-    const suffix = body.keyFingerprint
-      ? ` (server used key ${body.keyFingerprint})`
-      : "";
-    throw new Error((body.error ?? `Server error: ${res.status}`) + suffix);
+    throw new GenerationError(
+      body.error ?? `Server error: ${res.status}`,
+      body.meta ?? null,
+      body.keyFingerprint,
+    );
   }
   const data = (await res.json()) as {
     blueprint: Blueprint;
@@ -340,5 +367,94 @@ function ErrorState({
         <Button onClick={onRetry}>Retry generation</Button>
       </CardContent>
     </Card>
+  );
+}
+
+function StageTimeline({
+  meta,
+  defaultOpen,
+}: {
+  meta: EngineMeta;
+  defaultOpen: boolean;
+}) {
+  const failing = meta.stages.find((s) => !s.ok);
+  return (
+    <details
+      open={defaultOpen}
+      className="rounded-lg border border-primary-100/60 bg-background"
+    >
+      <summary className="flex cursor-pointer items-center justify-between px-4 py-2.5 text-xs text-muted-foreground">
+        <span>
+          Engine timeline ·{" "}
+          <span className="font-medium text-foreground">
+            {meta.stages.length} stage runs
+          </span>{" "}
+          ·{" "}
+          <span className="font-medium text-foreground">
+            {(meta.totalLatencyMs / 1000).toFixed(1)}s total
+          </span>
+          {meta.revisionCount > 0
+            ? ` · ${meta.revisionCount} revision pass${meta.revisionCount === 1 ? "" : "es"}`
+            : ""}
+          {failing ? (
+            <span className="ml-2 text-destructive">
+              · failing at <code>{failing.name}</code>
+            </span>
+          ) : null}
+        </span>
+        <span className="text-muted-foreground/60">▾</span>
+      </summary>
+      <div className="border-t">
+        <table className="w-full text-xs">
+          <thead className="bg-muted/30 text-[10px] uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="px-4 py-2 text-left font-medium">Stage</th>
+              <th className="px-4 py-2 text-left font-medium">Attempt</th>
+              <th className="px-4 py-2 text-left font-medium">Model</th>
+              <th className="px-4 py-2 text-right font-medium">Latency</th>
+              <th className="px-4 py-2 text-left font-medium">Result</th>
+            </tr>
+          </thead>
+          <tbody>
+            {meta.stages.map((s, i) => (
+              <tr key={`${s.name}-${i}`} className="border-t">
+                <td className="px-4 py-2 font-medium">{s.name}</td>
+                <td className="px-4 py-2 text-muted-foreground">{s.attempt}</td>
+                <td className="px-4 py-2 text-muted-foreground">
+                  <code className="text-[11px]">{s.model}</code>
+                </td>
+                <td className="px-4 py-2 text-right text-muted-foreground tabular-nums">
+                  {(s.latencyMs / 1000).toFixed(2)}s
+                </td>
+                <td className="px-4 py-2">
+                  {s.ok ? (
+                    <span className="text-success-600">pass</span>
+                  ) : (
+                    <span className="text-destructive">
+                      {s.error ?? "fail"}
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {meta.review ? (
+          <div className="border-t bg-muted/20 px-4 py-2 text-[11px] text-muted-foreground">
+            Reviewer: <span className="font-medium">{meta.review.verdict}</span>{" "}
+            · pedagogy {meta.review.scores.pedagogy.toFixed(1)} · mechanic{" "}
+            {meta.review.scores.mechanic.toFixed(1)} · copy{" "}
+            {meta.review.scores.copy.toFixed(1)} · classroom fit{" "}
+            {meta.review.scores.classroomFit.toFixed(1)}
+            {meta.review.summary ? ` — "${meta.review.summary}"` : ""}
+          </div>
+        ) : null}
+        {meta.keyFingerprint ? (
+          <div className="border-t bg-muted/20 px-4 py-2 text-[10px] text-muted-foreground">
+            OpenAI key: <code>{meta.keyFingerprint}</code>
+          </div>
+        ) : null}
+      </div>
+    </details>
   );
 }
