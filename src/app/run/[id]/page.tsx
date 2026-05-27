@@ -1,6 +1,7 @@
 "use client";
 
 import type { Blueprint } from "@/components/blueprint-schema";
+import { RunErrorBoundary } from "@/components/run-error-boundary";
 import {
   type BriefInput,
   defaultBrief,
@@ -110,87 +111,91 @@ export default function RunPage() {
   };
 
   return (
-    <div className="space-y-6 pt-2">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <Link
-            href="/"
-            className="inline-flex items-center gap-1 text-muted-foreground text-xs hover:text-foreground"
-          >
-            <ChevronLeft className="size-3.5" />
-            Back
-          </Link>
-          <h1 className="pt-1 font-semibold text-2xl tracking-tight">
-            {brief.topic || "Module run"}
-          </h1>
-          <p className="text-muted-foreground text-sm">
-            Run <code className="text-xs">{runId}</code> · {brief.gradeBand} ·{" "}
-            {brief.durationMinutes} min
-            {genMeta ? (
-              <span className="ml-1">
-                · generated in {(genMeta.totalLatencyMs / 1000).toFixed(1)}s
-                across {genMeta.stages.length} stage runs
-                {genMeta.revisionCount > 0
-                  ? `, ${genMeta.revisionCount} revision pass${
-                      genMeta.revisionCount === 1 ? "" : "es"
-                    }`
-                  : ""}
-                {genMeta.review ? ` · reviewer ${genMeta.review.verdict}` : ""}
-              </span>
-            ) : null}
-          </p>
+    <RunErrorBoundary runId={runId}>
+      <div className="space-y-6 pt-2">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <Link
+              href="/"
+              className="inline-flex items-center gap-1 text-muted-foreground text-xs hover:text-foreground"
+            >
+              <ChevronLeft className="size-3.5" />
+              Back
+            </Link>
+            <h1 className="pt-1 font-semibold text-2xl tracking-tight">
+              {brief.topic || "Module run"}
+            </h1>
+            <p className="text-muted-foreground text-sm">
+              Run <code className="text-xs">{runId}</code> · {brief.gradeBand} ·{" "}
+              {brief.durationMinutes} min
+              {genMeta ? (
+                <span className="ml-1">
+                  · generated in {(genMeta.totalLatencyMs / 1000).toFixed(1)}s
+                  across {genMeta.stages.length} stage runs
+                  {genMeta.revisionCount > 0
+                    ? `, ${genMeta.revisionCount} revision pass${
+                        genMeta.revisionCount === 1 ? "" : "es"
+                      }`
+                    : ""}
+                  {genMeta.review
+                    ? ` · reviewer ${genMeta.review.verdict}`
+                    : ""}
+                </span>
+              ) : null}
+            </p>
+          </div>
+          <Stepper
+            current={stage}
+            completed={completed}
+            onSelect={(s) => {
+              if (completed.has(s) || s === stage) setStage(s);
+            }}
+          />
         </div>
-        <Stepper
-          current={stage}
-          completed={completed}
-          onSelect={(s) => {
-            if (completed.has(s) || s === stage) setStage(s);
-          }}
-        />
+
+        {genMeta && genMeta.stages.length > 0 ? (
+          <StageTimeline meta={genMeta} defaultOpen={!!genError} />
+        ) : null}
+
+        {!blueprint && !genError ? (
+          <GeneratingState topic={brief.topic} />
+        ) : genError ? (
+          <ErrorState message={genError} onRetry={retry} />
+        ) : blueprint ? (
+          <div>
+            {stage === "blueprint" ? (
+              <BlueprintStage
+                blueprint={blueprint}
+                onApprove={() => advance("build", "blueprint")}
+                onUpdate={(next) => {
+                  setBlueprint(next);
+                  saveBlueprint(runId, next);
+                }}
+                onRegenerate={retry}
+              />
+            ) : stage === "build" ? (
+              <BuildStage
+                blueprint={blueprint}
+                onDone={() => advance("preview", "build")}
+              />
+            ) : stage === "preview" ? (
+              <PreviewStage
+                blueprint={blueprint}
+                onNext={() => advance("qa", "preview")}
+              />
+            ) : stage === "qa" ? (
+              <QaStage
+                blueprint={blueprint}
+                review={genMeta?.review}
+                onNext={() => advance("publish", "qa")}
+              />
+            ) : (
+              <PublishStage blueprint={blueprint} />
+            )}
+          </div>
+        ) : null}
       </div>
-
-      {genMeta && genMeta.stages.length > 0 ? (
-        <StageTimeline meta={genMeta} defaultOpen={!!genError} />
-      ) : null}
-
-      {!blueprint && !genError ? (
-        <GeneratingState topic={brief.topic} />
-      ) : genError ? (
-        <ErrorState message={genError} onRetry={retry} />
-      ) : blueprint ? (
-        <div>
-          {stage === "blueprint" ? (
-            <BlueprintStage
-              blueprint={blueprint}
-              onApprove={() => advance("build", "blueprint")}
-              onUpdate={(next) => {
-                setBlueprint(next);
-                saveBlueprint(runId, next);
-              }}
-              onRegenerate={retry}
-            />
-          ) : stage === "build" ? (
-            <BuildStage
-              blueprint={blueprint}
-              onDone={() => advance("preview", "build")}
-            />
-          ) : stage === "preview" ? (
-            <PreviewStage
-              blueprint={blueprint}
-              onNext={() => advance("qa", "preview")}
-            />
-          ) : stage === "qa" ? (
-            <QaStage
-              blueprint={blueprint}
-              review={genMeta?.review}
-              onNext={() => advance("publish", "qa")}
-            />
-          ) : (
-            <PublishStage blueprint={blueprint} />
-          )}
-        </div>
-      ) : null}
-    </div>
+    </RunErrorBoundary>
   );
 }
 
