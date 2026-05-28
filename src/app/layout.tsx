@@ -1,4 +1,5 @@
 import { BrandHeader } from "@/components/brand-header";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
@@ -13,12 +14,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="size-full antialiased">
-        <div className="min-h-screen bg-gradient-to-b from-primary-50/40 via-background to-background">
-          <BrandHeader />
-          <main className="mx-auto w-full max-w-6xl px-6 pt-6 pb-24">
-            {children}
-          </main>
-        </div>
+        <TooltipProvider delayDuration={300}>
+          <div className="min-h-screen bg-gradient-to-b from-primary-50/40 via-background to-background">
+            <BrandHeader />
+            <main className="mx-auto w-full max-w-6xl px-6 pt-6 pb-24">
+              {children}
+            </main>
+          </div>
+        </TooltipProvider>
       </body>
     </html>
   );
