@@ -21,6 +21,7 @@ import {
   revisionInstruction,
   writerUserPrompt,
 } from "./prompts";
+import { asSyntheticReview, qaGate } from "./qa-gate";
 import {
   type Content,
   ContentSchema,
@@ -38,6 +39,7 @@ import {
 const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 const FALLBACK_MODEL = process.env.OPENAI_FALLBACK_MODEL ?? "gpt-4o";
 const MAX_REVISIONS = 1;
+const MAX_QA_HEALS = 1;
 
 class StageError extends Error {
   constructor(
@@ -623,6 +625,49 @@ export function maskKey(key: string): string {
   return `${key.slice(0, 7)}…${key.slice(-4)}`;
 }
 
+type AssembledResult =
+  | { blueprint: Blueprint; extraIssues: BlueprintIssue[] }
+  | { error: string };
+
+async function assembleAndRepair(
+  openai: Provider,
+  plan: Plan,
+  mechanic: Mechanic,
+  content: Content,
+  stages: StageRun[],
+): Promise<AssembledResult> {
+  const draft = assemble(plan, mechanic, content);
+  const parsed = BlueprintSchema.safeParse(draft);
+  if (!parsed.success) {
+    return {
+      error: `Assembled blueprint failed schema: ${parsed.error.message}`,
+    };
+  }
+  return repairFormulas(openai, parsed.data, stages);
+}
+
+function recordGateStage(
+  stages: StageRun[],
+  gate: ReturnType<typeof qaGate>,
+  attempt: number,
+): void {
+  const fails = gate.critiques.filter((c) => c.severity !== "nit");
+  stages.push({
+    name: "qa-gate",
+    model: "static",
+    latencyMs: 0,
+    attempt,
+    ok: fails.length === 0,
+    error:
+      fails.length === 0
+        ? undefined
+        : `${fails.length} non-nit issue(s): ${fails
+            .slice(0, 3)
+            .map((c) => `${c.stage}/${c.severity}: ${c.problem}`)
+            .join("; ")}`,
+  });
+}
+
 export async function runEngine(
   brief: EngineBrief,
   apiKey: string,
@@ -713,13 +758,18 @@ export async function runEngine(
       );
     }
 
-    // Assemble + validate
-    const draft = assemble(plan, mechanic, content);
-    const parsed = BlueprintSchema.safeParse(draft);
-    if (!parsed.success) {
+    // Assemble + repair formulas + deterministic QA gate (self-heal loop).
+    let assembled = await assembleAndRepair(
+      openai,
+      plan,
+      mechanic,
+      content,
+      stages,
+    );
+    if ("error" in assembled) {
       return {
         ok: false,
-        error: `Assembled blueprint failed schema: ${parsed.error.message}`,
+        error: assembled.error,
         meta: {
           totalLatencyMs: Date.now() - t0,
           stages,
@@ -730,12 +780,77 @@ export async function runEngine(
         },
       };
     }
-    const { blueprint, extraIssues } = await repairFormulas(
-      openai,
-      parsed.data,
-      stages,
-    );
-    const residualIssues = [...validateBlueprint(blueprint), ...extraIssues];
+
+    let qaHeals = 0;
+    let { blueprint, extraIssues } = assembled;
+    let gate = qaGate(brief, blueprint);
+    recordGateStage(stages, gate, 1);
+
+    while (gate.needsRevision && qaHeals < MAX_QA_HEALS) {
+      qaHeals++;
+      const synthetic = asSyntheticReview(gate.critiques, review);
+      const needs = new Set(synthetic.critiques.map((c) => c.stage));
+      const attempt = revisionCount + qaHeals + 1;
+      if (needs.has("planner")) {
+        plan = await runPlanner(openai, brief, synthetic, stages, attempt);
+      }
+      if (needs.has("mechanic")) {
+        mechanic = await runMechanic(
+          openai,
+          brief,
+          plan,
+          synthetic,
+          stages,
+          attempt,
+        );
+      }
+      if (needs.has("writer")) {
+        content = await runWriter(
+          openai,
+          brief,
+          plan,
+          mechanic,
+          synthetic,
+          stages,
+          attempt,
+        );
+      }
+      assembled = await assembleAndRepair(
+        openai,
+        plan,
+        mechanic,
+        content,
+        stages,
+      );
+      if ("error" in assembled) {
+        return {
+          ok: false,
+          error: assembled.error,
+          meta: {
+            totalLatencyMs: Date.now() - t0,
+            stages,
+            revisionCount: revisionCount + qaHeals,
+            review,
+            residualIssues: [],
+            keyFingerprint,
+          },
+        };
+      }
+      ({ blueprint, extraIssues } = assembled);
+      gate = qaGate(brief, blueprint);
+      recordGateStage(stages, gate, qaHeals + 1);
+    }
+
+    const residualIssues = [
+      ...validateBlueprint(blueprint),
+      ...extraIssues,
+      ...gate.critiques
+        .filter((c) => c.severity !== "nit")
+        .map((c) => ({
+          path: `qa.${c.stage}`,
+          problem: c.problem,
+        })),
+    ];
 
     return {
       ok: true,
@@ -743,7 +858,7 @@ export async function runEngine(
       meta: {
         totalLatencyMs: Date.now() - t0,
         stages,
-        revisionCount,
+        revisionCount: revisionCount + qaHeals,
         review,
         residualIssues,
         keyFingerprint,
@@ -784,7 +899,18 @@ export async function runEngine(
         object,
         stages,
       );
-      const residualIssues = [...validateBlueprint(blueprint), ...extraIssues];
+      const gate = qaGate(brief, blueprint);
+      recordGateStage(stages, gate, 1);
+      const residualIssues = [
+        ...validateBlueprint(blueprint),
+        ...extraIssues,
+        ...gate.critiques
+          .filter((c) => c.severity !== "nit")
+          .map((c) => ({
+            path: `qa.${c.stage}`,
+            problem: c.problem,
+          })),
+      ];
       return {
         ok: true,
         blueprint,

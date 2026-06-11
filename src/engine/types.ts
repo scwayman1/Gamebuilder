@@ -91,6 +91,7 @@ export const CritiqueSchema = z.object({
   problem: z.string(),
   suggestion: z.string(),
 });
+export type Critique = z.infer<typeof CritiqueSchema>;
 
 export const ReviewSchema = z.object({
   verdict: z.enum(["approve", "revise", "reject"]),
@@ -111,6 +112,7 @@ export type StageName =
   | "mechanic"
   | "writer"
   | "reviewer"
+  | "qa-gate"
   | "fallback-single-shot"
   | "formula-repair"
   | "game-designer"
