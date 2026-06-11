@@ -34,6 +34,13 @@ export const PHASER_ARCADE_TEMPLATE: GameTemplate = {
 - UI: show score and brief inline instructions as text objects. Include a visible win state and a lose/retry state; restart on pointer tap or SPACE.
 - Read every gameplay constant from GAME_CONFIG — never hardcode numbers that exist in the config.
 - Optionally call \`window.__reportScore(score)\` whenever the score changes (the harness records it).
+- AUDIO is available via \`window.__audio\` — zero-asset WebAudio utility:
+  - \`window.__audio.ding()\` on correct / pickup / win
+  - \`window.__audio.buzz()\` on wrong / collision / lose
+  - \`window.__audio.chime()\` on round win / level complete
+  - \`window.__audio.tick()\` for neutral feedback (timer, menu navigation)
+  - \`window.__audio.pop()\` for playful events (button tap, spawn)
+  Call them — don't gate behind feature checks. They no-op silently if the browser blocks audio. Use sparingly; don't spam.
 - FORBIDDEN: fetch, XMLHttpRequest, WebSocket, localStorage, sessionStorage, indexedDB, document.cookie, eval, new Function, import, parent, top, opener, location, document.write.
 - Keep gameCode under ~350 lines. One scene class (or inline scene object) is plenty.`,
 };
@@ -58,6 +65,82 @@ function skeleton(): string {
 </head>
 <body>
 <div id="game"></div>
+<script>
+// __AUDIO__ (frozen — zero-asset WebAudio utility: window.__audio.ding(),
+// .buzz(), .chime(), .tick(), .pop(). Lazy AudioContext init on first
+// gesture to satisfy browser autoplay policy. Safe in sandboxed iframes.)
+(function () {
+  var ctx = null;
+  function ensure() {
+    if (ctx) return ctx;
+    try {
+      var C = window.AudioContext || window.webkitAudioContext;
+      if (!C) return null;
+      ctx = new C();
+    } catch (e) { return null; }
+    return ctx;
+  }
+  // Try to resume the context on the first user gesture (autoplay policy).
+  function unlock() {
+    var c = ensure();
+    if (c && c.state === "suspended" && typeof c.resume === "function") c.resume();
+    window.removeEventListener("pointerdown", unlock, true);
+    window.removeEventListener("keydown", unlock, true);
+  }
+  window.addEventListener("pointerdown", unlock, true);
+  window.addEventListener("keydown", unlock, true);
+
+  function tone(freq, durMs, opts) {
+    var c = ensure();
+    if (!c) return;
+    var o = opts || {};
+    var t = c.currentTime + (o.delayMs ? o.delayMs / 1000 : 0);
+    var dur = durMs / 1000;
+    var osc = c.createOscillator();
+    osc.type = o.type || "sine";
+    osc.frequency.value = freq;
+    if (o.toFreq) {
+      osc.frequency.linearRampToValueAtTime(o.toFreq, t + dur);
+    }
+    var g = c.createGain();
+    var peak = (o.gain != null ? o.gain : 0.12);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g);
+    g.connect(c.destination);
+    osc.start(t);
+    osc.stop(t + dur + 0.05);
+  }
+
+  window.__audio = {
+    ding: function () {
+      tone(880, 0.14 * 1000, { type: "sine", gain: 0.14 });
+      tone(1320, 0.18 * 1000, { type: "sine", gain: 0.10, delayMs: 50 });
+    },
+    buzz: function () {
+      tone(220, 0.18 * 1000, { type: "square", gain: 0.08, toFreq: 130 });
+    },
+    chime: function () {
+      [523, 659, 784, 1047].forEach(function (f, i) {
+        tone(f, 0.22 * 1000, { type: "sine", gain: 0.10, delayMs: i * 90 });
+      });
+    },
+    tick: function () {
+      tone(900, 0.04 * 1000, { type: "square", gain: 0.05 });
+    },
+    pop: function () {
+      tone(440, 0.09 * 1000, { type: "triangle", gain: 0.10, toFreq: 660 });
+    },
+    // Generic escape hatch — frequency 80-3000Hz, duration <=600ms.
+    tone: function (freq, durMs, opts) {
+      if (typeof freq !== "number" || freq < 80 || freq > 3000) return;
+      if (typeof durMs !== "number" || durMs <= 0 || durMs > 600) return;
+      tone(freq, durMs, opts || {});
+    }
+  };
+})();
+</script>
 <script>
 // __HARNESS__ v2 (frozen — runtime reporting, screenshot capture, input fuzzing)
 (function () {
