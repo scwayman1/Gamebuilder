@@ -3,13 +3,13 @@
 // sandboxed iframe; we receive ghost-playtest screenshots plus runtime
 // telemetry and score them with a vision model.
 
+import { createOpenAI } from "@ai-sdk/openai";
+import { generateObject } from "ai";
 import {
   type GameDesign,
   type JudgeReport,
   JudgeReportSchema,
-} from "@/game/schema";
-import { createOpenAI } from "@ai-sdk/openai";
-import { generateObject } from "ai";
+} from "../game/schema";
 
 const JUDGE_MODEL = process.env.OPENAI_JUDGE_MODEL ?? "gpt-4o-mini";
 

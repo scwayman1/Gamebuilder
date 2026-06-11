@@ -5,16 +5,16 @@
 // Static gate: syntax + banned APIs + contract checks, with one
 // feedback-driven repair call before giving up.
 
+import { createOpenAI } from "@ai-sdk/openai";
+import { generateObject } from "ai";
 import {
   type GameArtifact,
   GameCodeSchema,
   type GameDesign,
   GameDesignSchema,
-} from "@/game/schema";
-import { PHASER_ARCADE_TEMPLATE, assembleGameHtml } from "@/game/template";
-import { validateGameCode } from "@/game/validate";
-import { createOpenAI } from "@ai-sdk/openai";
-import { generateObject } from "ai";
+} from "../game/schema";
+import { PHASER_ARCADE_TEMPLATE, assembleGameHtml } from "../game/template";
+import { validateGameCode } from "../game/validate";
 import { maskKey } from "./runner";
 import type { EngineBrief, EngineMeta, StageRun } from "./types";
 

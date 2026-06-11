@@ -1,9 +1,9 @@
+import { z } from "zod";
 import {
   SceneSchema,
   VariableSchema,
   VisualizationKindSchema,
-} from "@/components/blueprint-schema";
-import { z } from "zod";
+} from "../components/blueprint-schema";
 
 // ---- Stage 1: Planner ----
 export const PlanSchema = z.object({

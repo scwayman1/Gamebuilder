@@ -1,12 +1,12 @@
+import { createOpenAI } from "@ai-sdk/openai";
+import { generateObject } from "ai";
 import {
   type Blueprint,
   BlueprintSchema,
   evalFormula,
   isFormulaSafe,
   validateBlueprint,
-} from "@/components/blueprint-schema";
-import { createOpenAI } from "@ai-sdk/openai";
-import { generateObject } from "ai";
+} from "../components/blueprint-schema";
 import {
   MECHANIC_SYSTEM,
   PLANNER_SYSTEM,
