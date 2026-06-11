@@ -1,20 +1,33 @@
 import { z } from "zod";
 
 // Companion types that route through the code-gen game path instead of the
-// declarative Simulation Lab path.
-export const GAME_COMPANION_TYPES = ["Arcade Game (experimental)"] as const;
+// declarative Simulation Lab path. The Designer maps these to template ids.
+export const GAME_COMPANION_TYPES = [
+  "Arcade Game (experimental)",
+  "Flashcard Quest (experimental)",
+] as const;
 
 export function isGameCompanionType(companionType: string): boolean {
   return (GAME_COMPANION_TYPES as readonly string[]).includes(companionType);
 }
 
+// All registered template ids. The Designer chooses one; the Builder
+// receives the matching template contract.
+export const TEMPLATE_IDS = ["phaser3-arcade", "flashcard-quest"] as const;
+export type TemplateId = (typeof TEMPLATE_IDS)[number];
+
 // ---- Stage 1: Game Designer ----
 export const GameDesignSchema = z.object({
+  templateId: z
+    .enum(TEMPLATE_IDS)
+    .describe(
+      "Which template to build into. 'phaser3-arcade' for projectile/dodge/collect; 'flashcard-quest' for recall under stakes with a deck of cards. Pick based on the brief.",
+    ),
   title: z.string(),
   genre: z
     .string()
     .describe(
-      "Short genre tag, e.g. 'collector', 'dodge-em', 'target practice', 'sorting catcher'.",
+      "Short genre tag, e.g. 'collector', 'dodge-em', 'flashcard quest', 'sorting catcher'.",
     ),
   concept: z
     .string()
@@ -50,11 +63,44 @@ export const GameDesignSchema = z.object({
         meaning: z.string(),
       }),
     )
-    .min(3)
+    .min(2)
     .max(10)
     .describe(
       "Numeric tunables the code must read from GAME_CONFIG, e.g. playerSpeed, spawnIntervalMs, pointsToWin.",
     ),
+  flashcardDeck: z
+    .array(
+      z.object({
+        prompt: z.string(),
+        correct: z.string(),
+        distractors: z.array(z.string()).min(2).max(3),
+        explanation: z
+          .string()
+          .optional()
+          .describe(
+            "Optional short factoid shown on wrong answer — sympathetic teaching moment.",
+          ),
+      }),
+    )
+    .optional()
+    .describe(
+      "REQUIRED when templateId is 'flashcard-quest'. 10-20 cards specific to the lesson topic. The code reads this from GAME_CONFIG.deck.",
+    ),
+  theme: z
+    .object({
+      name: z.string().describe("e.g. 'castle', 'jungle', 'space', 'reef'."),
+      background: z
+        .string()
+        .describe("Hex color for the backdrop, e.g. #1a1a2e."),
+      accent: z.string().describe("Hex color for highlights/streak."),
+      mascotEmoji: z
+        .string()
+        .describe(
+          "Emoji used as the player or companion mascot, e.g. 🦊, 🐢, 🚀.",
+        ),
+    })
+    .optional()
+    .describe("REQUIRED when templateId is 'flashcard-quest'."),
 });
 export type GameDesign = z.infer<typeof GameDesignSchema>;
 

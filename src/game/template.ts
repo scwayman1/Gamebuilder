@@ -45,10 +45,82 @@ export const PHASER_ARCADE_TEMPLATE: GameTemplate = {
 - Keep gameCode under ~350 lines. One scene class (or inline scene object) is plenty.`,
 };
 
-export const TEMPLATES: GameTemplate[] = [PHASER_ARCADE_TEMPLATE];
+export const FLASHCARD_QUEST_TEMPLATE: GameTemplate = {
+  id: "flashcard-quest",
+  name: "Flashcard Quest",
+  engine: "Phaser 3.87 (vendored, global `Phaser`)",
+  description:
+    "Recall-under-stakes flashcard game. The student answers prompts from a deck; correct answers feed a companion, build a streak, and progress a themed map. Wrong answers are sympathetic teaching moments. Use this for facts, vocab, sight words, multiplication, capitals, dates, language pairs — anything that benefits from spaced repetition.",
+  contract: `TEMPLATE CONTRACT (flashcard-quest) — your code runs inside the same frozen HTML skeleton as Phaser arcade games. Phaser 3 is the global \`Phaser\`. SAME platform rules apply (no script tags, no asset loading, no network, no storage, etc.).
+
+THIS TEMPLATE'S SHAPE:
+- GAME_CONFIG MUST include \`deck\` (the array of cards from design.flashcardDeck), \`theme\` (object from design.theme), plus all numeric configSpec keys (targetCards, streakBonusEvery, etc.).
+- One Phaser scene running the recall loop. NOT real-time physics — this is a turn-based answer game.
+
+REQUIRED LOOP:
+1. On start: shuffle deck (Phaser.Utils.Array.Shuffle); show theme background (theme.background) and title screen with "TAP or SPACE to start". Show the mascot (theme.mascotEmoji) as a Phaser.Text at large fontSize.
+2. Round: pick the next card. Display the prompt as large readable text (fontSize: 36px, color: white, centered). Display 3-4 answer choices (correct + distractors) as tappable rounded rectangles arranged in a 2x2 grid. Use theme.accent for highlights.
+3. On TAP/CLICK an answer:
+   - Correct: window.__audio.ding(); particle burst from the card (Phaser particles or a quick tween of small circles radiating outward); streak++; score += 10 * (1 + Math.floor(streak/5)) (streak bonus); flash the streak meter; advance to next card.
+   - Wrong: window.__audio.buzz(); shake the wrong choice (tween x by ±6 over 80ms three times); highlight the correct answer briefly; if card.explanation exists, show it for 1.5s; streak = 0; card returns to the back of the deck (spaced repetition); advance after 1.5s.
+4. Companion mascot grows with streak: scale = 1 + Math.min(streak, 10) * 0.06. On streak 5+, play window.__audio.chime() once.
+5. Top bar (always visible): score, streak (with a heart or star icon), cards remaining.
+6. Win: deck cleared OR cards-completed >= GAME_CONFIG.targetCards. Show "QUEST COMPLETE!" + final score + record streak + "TAP or SPACE to play again". Play window.__audio.chime().
+
+DELIGHT NON-NEGOTIABLES (the game is boring without these):
+- Card flip animation: when transitioning, tween the card scaleX from 1 → 0 → 1 over ~250ms; swap text at scaleX=0.
+- Particle burst on correct: ~10 small circles spawned at the card center with random outward velocities, fading + scaling to 0 over ~500ms.
+- Sympathetic wrong: the answer text gets highlighted in green; the chosen wrong answer briefly turns red; copy says something kind like "Almost! [explanation]"
+- Streak meter that visibly responds — a row of stars/hearts that fill up; companion mascot growing.
+- Speed round every \`streakBonusEvery\` correct: card timer adds, 2x points.
+- Background gets slightly more saturated as streak grows (theme.accent alpha tween from 0 to 0.15).
+
+INPUT:
+- Pointer (tap any answer choice).
+- Keyboard: digit keys 1-4 select choice N; SPACE = start/restart at title and end screens.
+- Both must work — tablets and laptops are both targets.
+
+UI/LAYOUT (800x600):
+- Title bar at top: 50px tall. Score left, streak center, "Cards: X/Y" right.
+- Mascot in upper-left corner of play area, scaled by streak.
+- Prompt large in upper-middle, ~y=170.
+- Answer choices in a 2x2 grid below, each ~340x70, with rounded corners (use \`this.add.graphics().fillRoundedRect\`).
+- Text choices wrapped to fit; fontSize 22px.
+
+STATE MACHINE:
+- Use scene data (\`this.data.set/get\`) or simple scene-level vars: deckIndex, streak, score, recordStreak, state ("title"|"playing"|"reveal"|"end").
+- Distractors must NOT include the correct answer; shuffle them with the correct each round.
+
+Read every gameplay constant from GAME_CONFIG.`,
+};
+
+export const TEMPLATES: GameTemplate[] = [
+  PHASER_ARCADE_TEMPLATE,
+  FLASHCARD_QUEST_TEMPLATE,
+];
 
 export function getTemplate(id: string): GameTemplate | null {
   return TEMPLATES.find((t) => t.id === id) ?? null;
+}
+
+// Brief summary of all templates the Designer can pick from. Injected
+// into the Designer system prompt so the model knows the menu.
+export function templateMenu(): string {
+  return TEMPLATES.map((t) => `- "${t.id}" — ${t.name}: ${t.description}`).join(
+    "\n",
+  );
+}
+
+// Map companionType strings (from the brief form) to a preferred
+// template id. The Designer can override based on the topic if needed.
+export function templateForCompanionType(
+  companionType: string,
+): GameTemplate | null {
+  if (companionType === "Flashcard Quest (experimental)")
+    return FLASHCARD_QUEST_TEMPLATE;
+  if (companionType === "Arcade Game (experimental)")
+    return PHASER_ARCADE_TEMPLATE;
+  return null;
 }
 
 const CONFIG_MARK = "/*{{CONFIG}}*/";

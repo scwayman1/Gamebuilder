@@ -13,7 +13,13 @@ import {
   type GameDesign,
   GameDesignSchema,
 } from "../game/schema";
-import { PHASER_ARCADE_TEMPLATE, assembleGameHtml } from "../game/template";
+import {
+  PHASER_ARCADE_TEMPLATE,
+  assembleGameHtml,
+  getTemplate,
+  templateForCompanionType,
+  templateMenu,
+} from "../game/template";
 import { validateGameCode } from "../game/validate";
 import { maskKey } from "./runner";
 import type { EngineBrief, EngineMeta, StageRun } from "./types";
@@ -25,31 +31,48 @@ export type GameEngineResult =
   | { ok: true; artifact: GameArtifact; meta: EngineMeta }
   | { ok: false; error: string; meta: EngineMeta };
 
-const DESIGNER_SYSTEM = `You are the Game Designer stage of the AB Studios game engine.
-Goal: turn a lesson brief into a tight, buildable 2D arcade mini-game design.
+function designerSystem(brief: EngineBrief): string {
+  const preferred = templateForCompanionType(brief.companionType);
+  const steer = preferred
+    ? `\n\nTHE BRIEF'S COMPANION TYPE STRONGLY SUGGESTS templateId = "${preferred.id}". Only override if the topic genuinely demands a different template.`
+    : "";
+  return `You are the Game Designer stage of the AB Studios game engine.
+Goal: turn a lesson brief into a tight, buildable 2D mini-game design.
 
-Rules:
-- The core loop must TEACH the learning objective through play, not decorate it. Name the mapping explicitly in learningTieIn.
+PICK THE RIGHT TEMPLATE. Available templates:
+${templateMenu()}
+
+If templateId = "flashcard-quest" you MUST also produce:
+- flashcardDeck: 10-20 cards specific to the lesson topic. Each card has prompt (≤6 words for K-2, ≤12 for older), correct (the answer the student picks), and 2-3 distractors that are plausible but wrong. Include explanation when there's a teaching moment in the wrong answers ("Almost! Whales breathe air — they're mammals.").
+- theme: name, background (hex), accent (hex), mascotEmoji.
+
+GENERAL RULES:
+- The core loop must TEACH the learning objective through play. Name the mapping in learningTieIn.
 - Design for a 2-3 minute classroom session on a tablet or laptop. Simple controls (arrows/tap), instant restart.
-- Visuals are shapes, colors, and emoji-as-sprites ONLY. No image assets exist. Describe the look concretely in visualStyle.
-- configSpec: 3-10 numeric tunables the builder must wire through (speeds, spawn intervals, points-to-win). Sensible defaults.
-- Age-appropriate for the grade band. Playful, zero violence beyond cartoon dodging/collecting.
+- Visuals are shapes, colors, and emoji-as-sprites ONLY. Describe the look concretely in visualStyle.
+- configSpec: 2-10 numeric tunables (speeds, intervals, targetCards, streakBonusEvery, etc.). Sensible defaults.
+- Age-appropriate for the grade band. Playful, zero violence beyond cartoon dodging/collecting.${steer}
 
 Output the design object only.`;
+}
 
-const BUILDER_SYSTEM = `You are the Builder stage of the AB Studios game engine. You write complete, runnable Phaser 3 game code into a frozen template.
+function builderSystem(templateId: string): string {
+  const template = getTemplate(templateId) ?? PHASER_ARCADE_TEMPLATE;
+  return `You are the Builder stage of the AB Studios game engine. You write complete, runnable Phaser 3 game code into a frozen template.
 
-${PHASER_ARCADE_TEMPLATE.contract}
+${template.contract}
 
 QUALITY BAR:
-- The game must be playable immediately: clear goal text on screen, score visible, win and lose states, instant restart (SPACE or tap).
+- The game must be playable immediately: clear goal text on screen, score visible, win/end states, instant restart (SPACE or tap).
 - Wire EVERY key from the design's configSpec into GAME_CONFIG and read it in the game code.
+- If the design includes flashcardDeck or theme, put them in GAME_CONFIG as \`deck\` and \`theme\` and use them — do not invent your own.
 - Emoji text objects make great sprites: this.add.text(x, y, "🦅", { fontSize: "40px" }).
-- Use delta-time-safe movement (velocities via arcade physics, or dt-scaled manual movement).
+- Use delta-time-safe movement (velocities via arcade physics, or dt-scaled manual movement) for any real-time game.
 - Defensive coding: never index into arrays that might be empty; destroy offscreen objects; cap spawned object counts.
-- The learning objective must surface in the mechanic (e.g., catching correct answers, sorting items, matching forces), not just in flavor text.
+- The learning objective must surface in the mechanic, not just in flavor text.
 
 Output the code object only: { configCode, gameCode }.`;
+}
 
 function designerPrompt(brief: EngineBrief): string {
   return `Lesson brief:
@@ -58,6 +81,7 @@ Topic: ${brief.topic}
 Grade band: ${brief.gradeBand}
 Subject: ${brief.subject}
 Learning objective: ${brief.learningObjective}
+Companion type (steer): ${brief.companionType}
 Time available: ${brief.durationMinutes} minutes
 ${brief.tone ? `Tone: ${brief.tone}` : ""}
 ${brief.classroomConstraints ? `Classroom constraints: ${brief.classroomConstraints}` : ""}
@@ -71,7 +95,7 @@ function builderPrompt(brief: EngineBrief, design: GameDesign): string {
 Learning objective: ${brief.learningObjective}
 
 ---
-Game design to implement exactly:
+Game design to implement exactly (templateId=${design.templateId}):
 ${JSON.stringify(design, null, 2)}
 
 Write the code.`;
@@ -107,7 +131,7 @@ export async function runGameEngine(
       const { object } = await generateObject({
         model: openai(DESIGN_MODEL),
         schema: GameDesignSchema,
-        system: DESIGNER_SYSTEM,
+        system: designerSystem(brief),
         prompt: designerPrompt(brief),
         temperature: 0.6,
         maxRetries: 1,
@@ -151,7 +175,7 @@ ${lastProblems.map((p, i) => `${i + 1}. ${p}`).join("\n")}`;
       const { object: code } = await generateObject({
         model: openai(BUILDER_MODEL),
         schema: GameCodeSchema,
-        system: BUILDER_SYSTEM,
+        system: builderSystem(design.templateId),
         prompt,
         temperature: attempt === 1 ? 0.4 : 0.2,
         maxRetries: 1,
@@ -177,7 +201,7 @@ ${lastProblems.map((p, i) => `${i + 1}. ${p}`).join("\n")}`;
 
       if (problems.length === 0) {
         const artifact: GameArtifact = {
-          templateId: PHASER_ARCADE_TEMPLATE.id,
+          templateId: design.templateId,
           title: design.title,
           design,
           code,
@@ -226,9 +250,11 @@ ${lastProblems.map((p, i) => `${i + 1}. ${p}`).join("\n")}`;
 // the exact runtime errors. Feed code + errors back to the Builder model
 // for a targeted fix, re-validate statically, return a new artifact.
 
-const REPAIR_SYSTEM = `You are the Debug stage of the AB Studios game engine. A Phaser 3 game you wrote crashed at runtime inside its sandbox. You receive the complete current code and the exact runtime errors captured by the harness.
+function repairSystem(templateId: string): string {
+  const template = getTemplate(templateId) ?? PHASER_ARCADE_TEMPLATE;
+  return `You are the Debug stage of the AB Studios game engine. A Phaser 3 game you wrote crashed at runtime inside its sandbox. You receive the complete current code and the exact runtime errors captured by the harness.
 
-${PHASER_ARCADE_TEMPLATE.contract}
+${template.contract}
 
 REPAIR PROTOCOL:
 - Diagnose each runtime error and apply the MINIMAL fix. Do not redesign the game, rename config keys, or change mechanics that already work.
@@ -236,6 +262,7 @@ REPAIR PROTOCOL:
 - Resubmit the COMPLETE corrected code for both blocks, not a diff.
 
 Output the code object only: { configCode, gameCode }.`;
+}
 
 export type RepairResult =
   | { ok: true; artifact: GameArtifact; meta: EngineMeta }
@@ -267,7 +294,7 @@ export async function repairGame(
       const { object: code } = await generateObject({
         model: openai(BUILDER_MODEL),
         schema: GameCodeSchema,
-        system: REPAIR_SYSTEM,
+        system: repairSystem(artifact.templateId),
         prompt: `Game design:
 ${JSON.stringify(artifact.design, null, 2)}
 

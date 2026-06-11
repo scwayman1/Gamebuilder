@@ -15,6 +15,7 @@ import {
 
 const companionTypes = [
   "Simulation Lab",
+  "Flashcard Quest (experimental)",
   "Arcade Game (experimental)",
   "Build-and-Test Activity",
   "Scenario Challenge",
