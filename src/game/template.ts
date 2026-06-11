@@ -809,52 +809,50 @@ window.__preloadArtAssets = function (scene) {
     return img;
   }
 
-  // ---- post-processing: vignette + soft bloom over the camera.
-  // Cheap to compute, but dramatically lifts perceived quality.
+  // ---- post-processing: vignette + soft bloom as SVG sprite overlays.
+  // The old graphics-fill version flooded the canvas with semi-
+  // transparent black and hid the scene. The fix uses pre-baked radial-
+  // gradient SVGs stretched edge-to-edge as Images: real transparent
+  // center, soft falloff at the edges. Cheap, correct.
   function vignette(scene, opts) {
     opts = opts || {};
     var w = scene.scale.width, h = scene.scale.height;
-    var v = scene.add.graphics().setDepth(950).setScrollFactor(0);
-    var inner = Math.min(w, h) * 0.6;
-    var outer = Math.sqrt(w * w + h * h) * 0.7;
-    for (var r = inner; r < outer; r += 24) {
-      var a = ((r - inner) / (outer - inner)) * (opts.intensity || 0.55);
-      v.fillStyle(0x000000, Math.min(0.05, a * 0.05));
-      v.fillRect(0, 0, w, h);
-    }
-    var corners = scene.add.graphics().setDepth(951).setScrollFactor(0);
-    corners.fillStyle(0x000000, 0.55);
-    corners.fillRect(0, 0, w, h);
-    corners.fillStyle(0x000000, 0);
-    corners.fillRect(40, 40, w - 80, h - 80);
-    corners.setBlendMode(Phaser.BlendModes.MULTIPLY);
-    return v;
+    var key = window.__ensureAsset(scene, "vignette");
+    if (!key) return null;
+    var img = scene.add.image(w * 0.5, h * 0.5, key);
+    img.setDisplaySize(w, h);
+    img.setScrollFactor(0);
+    img.setDepth(950);
+    img.setAlpha(Math.min(1, opts.intensity == null ? 0.85 : opts.intensity));
+    return img;
+  }
+  function bloomOverlay(scene, opts) {
+    opts = opts || {};
+    var w = scene.scale.width, h = scene.scale.height;
+    var key = window.__ensureAsset(scene, "bloom_overlay");
+    if (!key) return null;
+    var img = scene.add.image(w * 0.5, h * 0.5, key);
+    img.setDisplaySize(w, h);
+    img.setScrollFactor(0);
+    img.setDepth(948);
+    img.setAlpha(Math.min(1, opts.intensity == null ? 0.9 : opts.intensity));
+    return img;
   }
   function filmGrain(scene) {
     var w = scene.scale.width, h = scene.scale.height;
     var g = scene.add.graphics().setDepth(949).setScrollFactor(0).setAlpha(0.05);
-    for (var i = 0; i < 800; i++) {
-      g.fillStyle(0xffffff, 0.3);
+    for (var i = 0; i < 600; i++) {
+      g.fillStyle(0xffffff, 0.25);
       g.fillRect(Math.random() * w, Math.random() * h, 1, 1);
     }
     return g;
   }
-  function bloomCanvas(scene) {
-    // Bloom-lite: a soft white radial overlay at the top of the scene
-    // simulating atmospheric light scatter.
-    var w = scene.scale.width, h = scene.scale.height;
-    var b = scene.add.graphics().setDepth(948).setScrollFactor(0);
-    b.fillStyle(0xffffff, 0.12);
-    b.fillEllipse(w * 0.5, h * 0.15, w * 1.2, h * 0.5);
-    return b;
-  }
   function postProcess(scene, opts) {
     opts = opts || {};
-    var layers = scene.add.container(0, 0).setDepth(945).setScrollFactor(0);
-    if (opts.bloom !== false) bloomCanvas(scene);
+    if (opts.bloom !== false) bloomOverlay(scene, { intensity: opts.bloomIntensity });
     if (opts.grain) filmGrain(scene);
     if (opts.vignette !== false) vignette(scene, { intensity: opts.intensity });
-    return layers;
+    return scene;
   }
 
   window.__art = {
@@ -885,7 +883,7 @@ window.__preloadArtAssets = function (scene) {
       glow: glow,
       vignette: vignette,
       filmGrain: filmGrain,
-      bloom: bloomCanvas,
+      bloom: bloomOverlay,
       postProcess: postProcess
     }
   };

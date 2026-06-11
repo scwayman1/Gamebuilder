@@ -293,6 +293,40 @@ export function beakerSvg(): string {
 </svg>`;
 }
 
+export function vignetteSvg(): string {
+  // True radial vignette: fully transparent inside ~60% of the canvas,
+  // ramping to soft black at the edges. Stretched across the scene as
+  // an Image, NOT layered black rects (which is what broke the screen).
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" preserveAspectRatio="none">
+  <defs>
+    <radialGradient id="vg" cx="50%" cy="50%" r="62%">
+      <stop offset="0" stop-color="#000" stop-opacity="0"/>
+      <stop offset="0.55" stop-color="#000" stop-opacity="0"/>
+      <stop offset="0.78" stop-color="#000" stop-opacity="0.18"/>
+      <stop offset="0.92" stop-color="#000" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0.65"/>
+    </radialGradient>
+  </defs>
+  <rect width="320" height="200" fill="url(#vg)"/>
+</svg>`;
+}
+
+export function bloomOverlaySvg(): string {
+  // Top-down soft light scatter. Sits ABOVE the scene at low alpha to
+  // mimic atmospheric bloom — no darkening anywhere.
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" preserveAspectRatio="none">
+  <defs>
+    <radialGradient id="bl" cx="50%" cy="0%" r="80%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="0.35" stop-color="#ffffff" stop-opacity="0.08"/>
+      <stop offset="0.7" stop-color="#ffffff" stop-opacity="0.02"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="320" height="200" fill="url(#bl)"/>
+</svg>`;
+}
+
 export function treeSvg(): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 160">
   <defs>
@@ -363,5 +397,7 @@ export function svgAssetLibrary(): Record<string, string> {
     lever: svgToDataUri(leverSvg()),
     beaker: svgToDataUri(beakerSvg()),
     tree: svgToDataUri(treeSvg()),
+    vignette: svgToDataUri(vignetteSvg()),
+    bloom_overlay: svgToDataUri(bloomOverlaySvg()),
   };
 }
