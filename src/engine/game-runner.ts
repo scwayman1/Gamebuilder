@@ -46,6 +46,10 @@ If templateId = "flashcard-quest" you MUST also produce:
 - flashcardDeck: 10-20 cards specific to the lesson topic. Each card has prompt (≤6 words for K-2, ≤12 for older), correct (the answer the student picks), and 2-3 distractors that are plausible but wrong. Include explanation when there's a teaching moment in the wrong answers ("Almost! Whales breathe air — they're mammals.").
 - theme: name, background (hex), accent (hex), mascotEmoji.
 
+If templateId = "trail-master" you MUST also produce:
+- trail: { destination, opening, steps[5-12] }. Each step is a scene + 2-3 choices where EXACTLY ONE is correct. Every choice (right and wrong) needs a consequence string — that's where the actual teaching happens. Wrong-choice consequences are gentle and explain the misconception ("Going against the current wears you out — water flows downhill because of gravity."); right-choice consequences celebrate and reinforce ("Yes! Gravity pulls the water along the steepest slope.").
+- theme: name, background (hex), accent (hex), mascotEmoji.
+
 GENERAL RULES:
 - The core loop must TEACH the learning objective through play. Name the mapping in learningTieIn.
 - Design for a 2-3 minute classroom session on a tablet or laptop. Simple controls (arrows/tap), instant restart.
@@ -65,7 +69,7 @@ ${template.contract}
 QUALITY BAR:
 - The game must be playable immediately: clear goal text on screen, score visible, win/end states, instant restart (SPACE or tap).
 - Wire EVERY key from the design's configSpec into GAME_CONFIG and read it in the game code.
-- If the design includes flashcardDeck or theme, put them in GAME_CONFIG as \`deck\` and \`theme\` and use them — do not invent your own.
+- If the design includes flashcardDeck/trail/theme, put them in GAME_CONFIG as \`deck\`/\`trail\`/\`theme\` and use them — do not invent your own.
 - Emoji text objects make great sprites: this.add.text(x, y, "🦅", { fontSize: "40px" }).
 - Use delta-time-safe movement (velocities via arcade physics, or dt-scaled manual movement) for any real-time game.
 - Defensive coding: never index into arrays that might be empty; destroy offscreen objects; cap spawned object counts.

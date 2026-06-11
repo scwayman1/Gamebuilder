@@ -94,9 +94,63 @@ STATE MACHINE:
 Read every gameplay constant from GAME_CONFIG.`,
 };
 
+export const TRAIL_MASTER_TEMPLATE: GameTemplate = {
+  id: "trail-master",
+  name: "Trail Master",
+  engine: "Phaser 3.87 (vendored, global `Phaser`)",
+  description:
+    "Branching-journey decision game. The student's mascot travels a winding trail; at each waypoint a scene + 2-3 choices test understanding. Right answers carry the mascot forward with delight; wrong answers trigger a sympathetic teaching moment and the journey resumes (no dead ends). Use this for cause-and-effect topics, history/civics, ecology, navigation, physical reasoning — anything where the lesson is 'what should you do here, and why?'",
+  contract: `TEMPLATE CONTRACT (trail-master) — your code runs inside the same frozen HTML skeleton as the other templates. Phaser 3 is the global \`Phaser\`. SAME platform rules apply (no script tags, no asset loading, no network, no storage, etc.).
+THIS TEMPLATE'S SHAPE:
+- GAME_CONFIG MUST include \`trail\` (the object from design.trail with destination, opening, steps[]), \`theme\` (object from design.theme), plus all numeric configSpec keys (moraleStart, streakBonusEvery, etc.).
+- One Phaser scene running the journey loop. NOT real-time physics — this is a sequence of scenes with a moving avatar between them.
+
+REQUIRED LOOP:
+1. Title screen: dark themed background (theme.background), title text = "Journey to " + trail.destination. Show trail.opening as a 2-line subtitle. Show theme.mascotEmoji as a large Phaser.Text (fontSize 80px) gently bobbing (sine tween on y). "TAP or SPACE to begin" pulses below.
+2. After start: render the trail as a polyline that winds across the canvas (left-to-right with vertical zigzag — see UI/LAYOUT). Waypoints are filled circles (radius 18) at each step position. The current waypoint glows with theme.accent.
+3. For each step (deckIndex 0..steps.length-1):
+   a. Mascot tweens along the polyline from previous waypoint to current (~600ms). window.__audio.tick() at start, window.__audio.pop() on arrival.
+   b. Reveal a "scene card" overlay: a rounded rectangle (700x300, centered, fillStyle theme.background with white border) containing the prompt text (fontSize 24px, white, word-wrapped at width 640) and the choices as tappable rounded rect buttons (each 640x44, vertically stacked under the prompt, fillStyle theme.accent at low alpha, white text).
+   c. Choices' display order is SHUFFLED each step (Phaser.Utils.Array.Shuffle on a copy of the choices array — do NOT mutate the source).
+   d. On TAP/CLICK or digit key 1-3:
+      - Correct (choice.isCorrect): window.__audio.ding(); particle burst at the chosen button (~10 small circles theme.accent, radial outward, fade in 500ms); morale += 1; streak += 1; score += 10 * (1 + Math.floor(streak / 5)); show consequence text in the card for 1500ms with a green check ✓ next to the chosen button.
+      - Wrong: window.__audio.buzz(); chosen button shakes (tween x ±6 over 80ms three times); the CORRECT choice highlights in green; show choice.consequence as a sympathetic teaching message for 2200ms; streak = 0; morale unchanged (no game over — the lesson continues). The journey ALWAYS advances. Never punish with a dead end.
+   e. After the reveal delay: dismiss the card (fade out 200ms) and advance deckIndex.
+4. Top bar (always visible, 50px tall): "Step X / Y" left, score center, streak with a fire/star emoji right, morale as a small heart row (filled vs empty based on max(morale, 0) of total steps).
+5. Speed segment: every \`streakBonusEvery\` correct in a row, briefly show "TRAIL BOOST!" text and mascot leaves a trailing particle line on next move. Audio: window.__audio.chime().
+6. Win: deckIndex >= trail.steps.length. Mascot reaches a goal flag emoji 🏁 at the trail end. Big "ARRIVED AT " + trail.destination + "!" headline. Final score, record streak, and "TAP or SPACE to journey again". Play window.__audio.chime() once.
+
+DELIGHT NON-NEGOTIABLES:
+- Mascot bob/tween animation between waypoints — never teleport.
+- Background subtly responds to streak: a soft theme.accent gradient overlay alpha tweens from 0 to 0.18 as streak grows; resets on a wrong answer.
+- Wrong is sympathetic, never cruel: green-checks the correct choice and SHOWS the teaching message. The lesson is the consequence text — give it space and time on screen.
+- Choice buttons grow slightly on hover (pointerover scale 1.04, pointerout scale 1.0).
+- The trail polyline is visible at all times; completed waypoints render in muted color; remaining ones in theme.accent.
+
+INPUT:
+- Pointer (tap a choice button; tap title to start).
+- Keyboard: digit keys 1, 2, 3 select the choice in that display position (after shuffle); SPACE = start/restart at title and end screens.
+- Both must work — tablets and laptops are both targets.
+
+UI/LAYOUT (800x600):
+- Top bar 50px (always visible).
+- Trail polyline rendered with this.add.graphics().lineStyle(...).strokePoints(points, true). Points = array of {x, y} for each waypoint, spread evenly across width 80..720 with y = 350 + Math.sin(i / steps.length * Math.PI * 2) * 60 (a sine wave to make the trail snake).
+- Mascot Phaser.Text at fontSize 48px positioned on the current point with anchor 0.5.
+- Scene card overlay sits ABOVE the trail layer, positioned y=320, depth: 100.
+- Goal flag 🏁 at the final waypoint position.
+
+STATE MACHINE:
+- Scene-level vars or this.data: deckIndex, streak, score, morale, recordStreak, state ("title"|"moving"|"prompt"|"reveal"|"end"), bgOverlayAlpha.
+- After loading GAME_CONFIG.trail, build the waypoints array ONCE in create(); do not recompute per frame.
+- Always validate: if a step has no isCorrect choice, treat the first as correct (defensive, in case the model slipped). NEVER show a step with zero choices — skip it silently.
+
+Read every gameplay constant from GAME_CONFIG.`,
+};
+
 export const TEMPLATES: GameTemplate[] = [
   PHASER_ARCADE_TEMPLATE,
   FLASHCARD_QUEST_TEMPLATE,
+  TRAIL_MASTER_TEMPLATE,
 ];
 
 export function getTemplate(id: string): GameTemplate | null {
@@ -120,6 +174,8 @@ export function templateForCompanionType(
     return FLASHCARD_QUEST_TEMPLATE;
   if (companionType === "Arcade Game (experimental)")
     return PHASER_ARCADE_TEMPLATE;
+  if (companionType === "Trail Master (experimental)")
+    return TRAIL_MASTER_TEMPLATE;
   return null;
 }
 
