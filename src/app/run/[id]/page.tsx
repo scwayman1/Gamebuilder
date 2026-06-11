@@ -1,6 +1,7 @@
 "use client";
 
 import type { Blueprint } from "@/components/blueprint-schema";
+import { GameRun } from "@/components/game-run";
 import { RunErrorBoundary } from "@/components/run-error-boundary";
 import {
   type BriefInput,
@@ -17,6 +18,7 @@ import { QaStage } from "@/components/stages/qa-stage";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { EngineMeta } from "@/engine/types";
+import { isGameCompanionType } from "@/game/schema";
 import { cn } from "@/lib/utils";
 import {
   AlertTriangle,
@@ -43,10 +45,13 @@ const stages = [
 
 type StageId = (typeof stages)[number]["id"];
 
+type RunMode = "loading" | "blueprint" | "game";
+
 export default function RunPage() {
   const params = useParams<{ id: string }>();
   const runId = params.id;
   const [brief, setBrief] = useState<BriefInput>(defaultBrief);
+  const [mode, setMode] = useState<RunMode>("loading");
   const [blueprint, setBlueprint] = useState<Blueprint | null>(null);
   const [genMeta, setGenMeta] = useState<EngineMeta | null>(null);
   const [genError, setGenError] = useState<string | null>(null);
@@ -57,6 +62,12 @@ export default function RunPage() {
   useEffect(() => {
     const b = loadBrief(runId);
     if (b) setBrief(b);
+    if (b && isGameCompanionType(b.companionType)) {
+      // Code-gen game runs have their own self-contained flow.
+      setMode("game");
+      return;
+    }
+    setMode("blueprint");
     const existing = loadBlueprint(runId);
     if (existing) {
       setBlueprint(existing);
@@ -109,6 +120,36 @@ export default function RunPage() {
         }
       });
   };
+
+  if (mode === "loading") {
+    return null;
+  }
+
+  if (mode === "game") {
+    return (
+      <RunErrorBoundary runId={runId}>
+        <div className="space-y-6 pt-2">
+          <div>
+            <Link
+              href="/"
+              className="inline-flex items-center gap-1 text-muted-foreground text-xs hover:text-foreground"
+            >
+              <ChevronLeft className="size-3.5" />
+              Back
+            </Link>
+            <h1 className="pt-1 font-semibold text-2xl tracking-tight">
+              {brief.topic || "Game run"}
+            </h1>
+            <p className="text-muted-foreground text-sm">
+              Run <code className="text-xs">{runId}</code> · {brief.gradeBand} ·
+              code-gen arcade game
+            </p>
+          </div>
+          <GameRun runId={runId} brief={brief} />
+        </div>
+      </RunErrorBoundary>
+    );
+  }
 
   return (
     <RunErrorBoundary runId={runId}>

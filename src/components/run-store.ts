@@ -1,5 +1,6 @@
 "use client";
 
+import type { GameArtifact } from "@/game/schema";
 import { type Blueprint, BlueprintSchema } from "./blueprint-schema";
 import { paperAirplaneBlueprint } from "./mock-blueprint";
 
@@ -35,6 +36,7 @@ export const defaultBrief: BriefInput = {
 
 const BRIEF_PREFIX = "scotts-experiment:brief:";
 const BLUEPRINT_PREFIX = "scotts-experiment:blueprint:";
+const GAME_PREFIX = "scotts-experiment:game:";
 const INDEX_KEY = "scotts-experiment:run-index";
 
 export type RunIndexEntry = {
@@ -80,6 +82,7 @@ export function deleteRun(runId: string) {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(BRIEF_PREFIX + runId);
   window.localStorage.removeItem(BLUEPRINT_PREFIX + runId);
+  window.localStorage.removeItem(GAME_PREFIX + runId);
   const next = listRuns().filter((e) => e.id !== runId);
   window.localStorage.setItem(INDEX_KEY, JSON.stringify(next));
 }
@@ -130,6 +133,29 @@ export function loadBlueprint(runId: string): Blueprint | null {
       return null;
     }
     return validated.data;
+  } catch {
+    return null;
+  }
+}
+
+export function saveGameArtifact(runId: string, artifact: GameArtifact) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(GAME_PREFIX + runId, JSON.stringify(artifact));
+  } catch (e) {
+    // Quota exceeded (game HTML can be sizeable). Drop oldest game entries.
+    console.warn("[run-store] failed to persist game artifact:", e);
+  }
+}
+
+export function loadGameArtifact(runId: string): GameArtifact | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(GAME_PREFIX + runId);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as GameArtifact;
+    if (typeof parsed.html !== "string" || !parsed.design) return null;
+    return parsed;
   } catch {
     return null;
   }

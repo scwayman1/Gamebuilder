@@ -111,7 +111,10 @@ export type StageName =
   | "mechanic"
   | "writer"
   | "reviewer"
-  | "fallback-single-shot";
+  | "fallback-single-shot"
+  | "game-designer"
+  | "game-builder"
+  | "game-static-check";
 
 export type StageRun = {
   name: StageName;

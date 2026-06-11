@@ -15,6 +15,7 @@ import {
 
 const companionTypes = [
   "Simulation Lab",
+  "Arcade Game (experimental)",
   "Build-and-Test Activity",
   "Scenario Challenge",
   "Decision Game",
