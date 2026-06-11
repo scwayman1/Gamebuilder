@@ -10,24 +10,59 @@ import { Button } from "@/components/ui/button";
 import type { HarnessMessage } from "@/game/schema";
 import { cn } from "@/lib/utils";
 import { Maximize2, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 
 export type GameRuntimeStatus = "booting" | "ready" | "crashed";
 
 export type GameRuntimeError = { message: string; stack?: string | null };
 
-export function GameFrame({
-  html,
-  onErrorsChange,
-}: {
-  html: string;
-  onErrorsChange?: (errors: GameRuntimeError[]) => void;
-}) {
+// Imperative playtest API used by the judge orchestration: drive ghost
+// input and pull screenshots out of the sandboxed game.
+export type GameFrameHandle = {
+  capture: () => Promise<string | null>;
+  fuzz: (durationMs: number) => void;
+  getRuntime: () => {
+    ready: boolean;
+    errors: string[];
+    lastScore: number | null;
+  };
+};
+
+export const GameFrame = forwardRef<
+  GameFrameHandle,
+  {
+    html: string;
+    onErrorsChange?: (errors: GameRuntimeError[]) => void;
+  }
+>(function GameFrame({ html, onErrorsChange }, handleRef) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [status, setStatus] = useState<GameRuntimeStatus>("booting");
   const [errors, setErrors] = useState<GameRuntimeError[]>([]);
   const [score, setScore] = useState<number | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const statusRef = useRef<GameRuntimeStatus>("booting");
+  const errorsRef = useRef<GameRuntimeError[]>([]);
+  const scoreRef = useRef<number | null>(null);
+  const pendingCaptures = useRef(
+    new Map<string, (dataUrl: string | null) => void>(),
+  );
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+  useEffect(() => {
+    errorsRef.current = errors;
+  }, [errors]);
+  useEffect(() => {
+    scoreRef.current = score;
+  }, [score]);
 
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
@@ -60,11 +95,51 @@ export function GameFrame({
         });
       } else if (msg.type === "score") {
         setScore(msg.score);
+      } else if (msg.type === "capture") {
+        const resolve = pendingCaptures.current.get(msg.id);
+        if (resolve) {
+          pendingCaptures.current.delete(msg.id);
+          resolve(msg.dataUrl);
+        }
       }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, []);
+
+  useImperativeHandle(
+    handleRef,
+    () => ({
+      capture: () =>
+        new Promise<string | null>((resolve) => {
+          const win = iframeRef.current?.contentWindow;
+          if (!win) {
+            resolve(null);
+            return;
+          }
+          const id = Math.random().toString(36).slice(2, 10);
+          pendingCaptures.current.set(id, resolve);
+          // Time out captures the harness never answers (old builds,
+          // crashed frames).
+          setTimeout(() => {
+            if (pendingCaptures.current.delete(id)) resolve(null);
+          }, 4000);
+          win.postMessage({ __gameParent: true, type: "capture", id }, "*");
+        }),
+      fuzz: (durationMs: number) => {
+        iframeRef.current?.contentWindow?.postMessage(
+          { __gameParent: true, type: "fuzz", durationMs },
+          "*",
+        );
+      },
+      getRuntime: () => ({
+        ready: statusRef.current === "ready",
+        errors: errorsRef.current.map((e) => e.message),
+        lastScore: scoreRef.current,
+      }),
+    }),
+    [],
+  );
 
   // Propagate error list to the parent (for the repair loop, Loop B).
   useEffect(() => {
@@ -153,4 +228,4 @@ export function GameFrame({
       ) : null}
     </div>
   );
-}
+});

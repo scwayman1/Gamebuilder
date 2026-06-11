@@ -8,17 +8,25 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { EngineMeta } from "@/engine/types";
-import type { GameArtifact } from "@/game/schema";
+import type { GameArtifact, JudgeReport } from "@/game/schema";
+import { cn } from "@/lib/utils";
 import {
   AlertTriangle,
   Check,
+  ClipboardCheck,
   Download,
   Gamepad2,
   Loader2,
   RefreshCw,
+  Sparkles,
+  Wrench,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { GameFrame, type GameRuntimeError } from "./game-frame";
+import {
+  GameFrame,
+  type GameFrameHandle,
+  type GameRuntimeError,
+} from "./game-frame";
 import {
   type BriefInput,
   loadGameArtifact,
@@ -61,15 +69,12 @@ const REPAIR_DEBOUNCE_MS = 2500;
 
 async function requestRepair(
   artifact: GameArtifact,
-  errors: GameRuntimeError[],
+  errors: string[],
 ): Promise<GameArtifact> {
   const res = await fetch("/api/game/repair", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      artifact,
-      errors: errors.slice(0, 10).map((e) => e.message),
-    }),
+    body: JSON.stringify({ artifact, errors: errors.slice(0, 10) }),
   });
   const body = (await res.json().catch(() => ({}))) as {
     artifact?: GameArtifact;
@@ -79,6 +84,53 @@ async function requestRepair(
     throw new Error(body.error ?? `Repair server error: ${res.status}`);
   }
   return body.artifact;
+}
+
+// Judge orchestration: ghost-playtest the running game, capture frames,
+// send to the vision judge.
+async function runJudgePlaytest(
+  frame: GameFrameHandle,
+  artifact: GameArtifact,
+): Promise<JudgeReport> {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const screenshots: string[] = [];
+
+  // Frame 1: initial state.
+  const s1 = await frame.capture();
+  if (s1) screenshots.push(s1);
+  // Frames 2-3: during/after ghost input bursts.
+  frame.fuzz(2200);
+  await sleep(2400);
+  const s2 = await frame.capture();
+  if (s2) screenshots.push(s2);
+  frame.fuzz(2200);
+  await sleep(2400);
+  const s3 = await frame.capture();
+  if (s3) screenshots.push(s3);
+
+  if (screenshots.length === 0) {
+    throw new Error(
+      "Could not capture any screenshots — this build may predate the capture harness. Regenerate the game and try again.",
+    );
+  }
+
+  const res = await fetch("/api/game/judge", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      design: artifact.design,
+      screenshots,
+      runtime: frame.getRuntime(),
+    }),
+  });
+  const body = (await res.json().catch(() => ({}))) as {
+    report?: JudgeReport;
+    error?: string;
+  };
+  if (!res.ok || !body.report) {
+    throw new Error(body.error ?? `Judge server error: ${res.status}`);
+  }
+  return body.report;
 }
 
 export function GameRun({
@@ -93,8 +145,12 @@ export function GameRun({
   const [repairing, setRepairing] = useState(false);
   const [repairsUsed, setRepairsUsed] = useState(0);
   const [repairNote, setRepairNote] = useState<string | null>(null);
+  const [judging, setJudging] = useState(false);
+  const [judgeReport, setJudgeReport] = useState<JudgeReport | null>(null);
+  const [judgeError, setJudgeError] = useState<string | null>(null);
   const started = useRef(false);
   const repairTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const frameRef = useRef<GameFrameHandle>(null);
 
   const generate = () => {
     setState({ phase: "generating" });
@@ -119,13 +175,14 @@ export function GameRun({
       });
   };
 
-  const runRepair = (artifact: GameArtifact, errors: GameRuntimeError[]) => {
+  const runRepair = (artifact: GameArtifact, errors: string[]) => {
     setRepairing(true);
     setRepairNote(null);
     requestRepair(artifact, errors)
       .then((fixed) => {
         saveGameArtifact(runId, fixed);
         setRuntimeErrors([]);
+        setJudgeReport(null);
         setRepairsUsed((n) => n + 1);
         setRepairNote(
           `Auto-repair #${fixed.repairCount ?? 0} applied — rebooting the game.`,
@@ -138,6 +195,31 @@ export function GameRun({
         );
       })
       .finally(() => setRepairing(false));
+  };
+
+  const runJudge = (artifact: GameArtifact) => {
+    const frame = frameRef.current;
+    if (!frame || judging) return;
+    setJudging(true);
+    setJudgeError(null);
+    setJudgeReport(null);
+    runJudgePlaytest(frame, artifact)
+      .then(setJudgeReport)
+      .catch((e: unknown) =>
+        setJudgeError(e instanceof Error ? e.message : "Judge failed"),
+      )
+      .finally(() => setJudging(false));
+  };
+
+  const applyJudgeFixes = (artifact: GameArtifact, report: JudgeReport) => {
+    const fixable = report.issues.filter((i) => i.severity !== "nit");
+    if (fixable.length === 0) return;
+    runRepair(
+      artifact,
+      fixable.map(
+        (i) => `QA judge (${i.severity}): ${i.problem} — fix: ${i.suggestion}`,
+      ),
+    );
   };
 
   // Debug Skill: when the sandbox reports a crash, debounce to collect the
@@ -157,7 +239,11 @@ export function GameRun({
     repairTimer.current = setTimeout(() => {
       // Re-read latest errors via state setter to avoid staleness.
       setRuntimeErrors((latest) => {
-        if (latest.length > 0) runRepair(artifact, latest);
+        if (latest.length > 0)
+          runRepair(
+            artifact,
+            latest.map((e) => e.message),
+          );
         return latest;
       });
     }, REPAIR_DEBOUNCE_MS);
@@ -227,6 +313,14 @@ export function GameRun({
             </p>
           </div>
           <div className="flex shrink-0 gap-2">
+            <Button
+              size="sm"
+              onClick={() => runJudge(artifact)}
+              disabled={judging || repairing}
+            >
+              <ClipboardCheck className="size-3.5" />
+              {judging ? "Judging…" : "Run QA judge"}
+            </Button>
             <Button size="sm" variant="outline" onClick={downloadGame}>
               <Download className="size-3.5" />
               Download .html
@@ -250,7 +344,11 @@ export function GameRun({
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <GameFrame html={artifact.html} onErrorsChange={setRuntimeErrors} />
+          <GameFrame
+            ref={frameRef}
+            html={artifact.html}
+            onErrorsChange={setRuntimeErrors}
+          />
 
           <div className="grid gap-4 md:grid-cols-3">
             <DesignNote label="How to play" body={artifact.design.controls} />
@@ -279,8 +377,31 @@ export function GameRun({
               Crash detected — collecting the error batch for auto-repair…
             </p>
           ) : null}
+
+          {judging ? (
+            <div className="flex items-center gap-2 rounded-lg border border-primary-100 bg-primary-50/40 p-3 text-sm">
+              <Loader2 className="size-4 animate-spin text-primary-500" />
+              <span>
+                Ghost-playtesting the game and judging screenshots — about 15
+                seconds…
+              </span>
+            </div>
+          ) : judgeError ? (
+            <p className="text-error-800 text-xs">{judgeError}</p>
+          ) : null}
         </CardContent>
       </Card>
+
+      {judgeReport ? (
+        <JudgePanel
+          report={judgeReport}
+          onApplyFixes={
+            judgeReport.issues.some((i) => i.severity !== "nit") && !repairing
+              ? () => applyJudgeFixes(artifact, judgeReport)
+              : undefined
+          }
+        />
+      ) : null}
 
       <details className="rounded-lg border border-primary-100/60 bg-background">
         <summary className="cursor-pointer px-4 py-2.5 text-muted-foreground text-xs">
@@ -307,6 +428,113 @@ export function GameRun({
           </div>
         </div>
       </details>
+    </div>
+  );
+}
+
+const judgeSeverityIcon = {
+  nit: <Check className="size-3.5 text-muted-foreground" />,
+  issue: <AlertTriangle className="size-3.5 text-secondary-600" />,
+  blocker: <AlertTriangle className="size-3.5 text-destructive" />,
+};
+
+function JudgePanel({
+  report,
+  onApplyFixes,
+}: {
+  report: JudgeReport;
+  onApplyFixes?: () => void;
+}) {
+  const verdictTone: Record<JudgeReport["verdict"], string> = {
+    approve: "text-success-600 border-success-600/30 bg-success-background",
+    revise: "text-secondary-700 border-secondary-200 bg-secondary-50/50",
+    reject: "text-error-800 border-destructive/30 bg-error-background",
+  };
+  return (
+    <Card className="border-primary-100/60">
+      <CardHeader className="flex flex-row items-center justify-between pb-3">
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <Sparkles className="size-4 text-primary-500" />
+          Visual QA Judge
+        </CardTitle>
+        <span
+          className={cn(
+            "rounded-full border px-2 py-0.5 font-medium text-[10px] uppercase tracking-wide",
+            verdictTone[report.verdict],
+          )}
+        >
+          verdict: {report.verdict}
+        </span>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-foreground/85 text-sm italic">"{report.summary}"</p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <JudgeScore label="Build health" value={report.scores.buildHealth} />
+          <JudgeScore
+            label="Visual usability"
+            value={report.scores.visualUsability}
+          />
+          <JudgeScore
+            label="Brief fidelity"
+            value={report.scores.briefFidelity}
+          />
+          <JudgeScore
+            label="Learning alignment"
+            value={report.scores.learningAlignment}
+          />
+        </div>
+        {report.issues.length > 0 ? (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <div className="font-semibold text-[10px] text-muted-foreground uppercase tracking-wider">
+                Issues
+              </div>
+              {onApplyFixes ? (
+                <Button size="sm" variant="outline" onClick={onApplyFixes}>
+                  <Wrench className="size-3.5" />
+                  Send fixes to repair
+                </Button>
+              ) : null}
+            </div>
+            <ul className="space-y-1.5">
+              {report.issues.map((c, i) => (
+                <li
+                  key={`${c.severity}-${i}`}
+                  className="rounded-md border bg-background/50 p-2.5 text-sm"
+                >
+                  <div className="flex items-center gap-2">
+                    {judgeSeverityIcon[c.severity]}
+                    <span className="font-medium">{c.problem}</span>
+                  </div>
+                  <div className="pt-1 pl-5 text-muted-foreground text-xs">
+                    Fix: {c.suggestion}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function JudgeScore({ label, value }: { label: string; value: number }) {
+  const tone =
+    value >= 8
+      ? "border-success-600/30 bg-success-background text-success-600"
+      : value >= 6
+        ? "border-primary-100 bg-primary-50/40 text-primary-700"
+        : value >= 4
+          ? "border-secondary-200 bg-secondary-50/50 text-secondary-700"
+          : "border-destructive/30 bg-error-background text-error-800";
+  return (
+    <div className={cn("rounded-md border px-2 py-1.5", tone)}>
+      <div className="text-[10px] text-muted-foreground">{label}</div>
+      <div className="font-semibold text-base tabular-nums">
+        {value.toFixed(1)}
+        <span className="text-muted-foreground text-xs"> / 10</span>
+      </div>
     </div>
   );
 }

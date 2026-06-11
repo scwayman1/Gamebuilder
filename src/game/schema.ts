@@ -92,4 +92,55 @@ export type HarnessMessage =
   | { type: "error"; message: string; stack?: string | null }
   | { type: "console.error"; message: string }
   | { type: "score"; score: number }
-  | { type: "heartbeat"; t: number };
+  | { type: "heartbeat"; t: number }
+  | { type: "capture"; id: string; dataUrl: string | null };
+
+// ---- Stage 3: Visual judge (OpenGame-Bench dimensions + pedagogy) ----
+export const JudgeReportSchema = z.object({
+  scores: z.object({
+    buildHealth: z
+      .number()
+      .min(0)
+      .max(10)
+      .describe(
+        "Does the game render and run? Blank/black frames, error text, or frozen identical frames score low.",
+      ),
+    visualUsability: z
+      .number()
+      .min(0)
+      .max(10)
+      .describe(
+        "Can a child parse the screen? Readable text, visible player/objects, clear score display, sensible contrast.",
+      ),
+    briefFidelity: z
+      .number()
+      .min(0)
+      .max(10)
+      .describe(
+        "Does what's on screen match the requested game design (genre, mechanic, visual style)?",
+      ),
+    learningAlignment: z
+      .number()
+      .min(0)
+      .max(10)
+      .describe(
+        "Is the learning objective visible IN the mechanic shown (labels, categories, quantities), not just theming?",
+      ),
+  }),
+  verdict: z.enum(["approve", "revise", "reject"]),
+  issues: z
+    .array(
+      z.object({
+        severity: z.enum(["nit", "issue", "blocker"]),
+        problem: z.string(),
+        suggestion: z
+          .string()
+          .describe(
+            "A concrete, code-actionable fix the repair stage can apply.",
+          ),
+      }),
+    )
+    .max(8),
+  summary: z.string().describe("One sentence for a human reviewer."),
+});
+export type JudgeReport = z.infer<typeof JudgeReportSchema>;

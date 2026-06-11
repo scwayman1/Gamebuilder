@@ -59,7 +59,7 @@ function skeleton(): string {
 <body>
 <div id="game"></div>
 <script>
-// __HARNESS__ (frozen — reports runtime state to the parent app)
+// __HARNESS__ v2 (frozen — runtime reporting, screenshot capture, input fuzzing)
 (function () {
   function report(type, payload) {
     try { parent.postMessage({ __gameHarness: true, type: type, payload: payload || {} }, "*"); } catch (e) {}
@@ -83,6 +83,90 @@ function skeleton(): string {
   window.__reportScore = function (s) { report("score", { score: Number(s) || 0 }); };
   var beats = 0;
   setInterval(function () { if (beats < 20) report("heartbeat", { t: ++beats }); }, 1500);
+
+  // ---- Screenshot capture (judge support) ----
+  // Uses Phaser's renderer.snapshot (WebGL-safe; no preserveDrawingBuffer
+  // needed). Falls back to canvas.toDataURL. Downscales to ~480px wide
+  // JPEG to keep vision-model payloads small.
+  function downscale(img, cb) {
+    try {
+      var w = 480;
+      var h = Math.round(img.height * (w / img.width)) || 360;
+      var c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      c.getContext("2d").drawImage(img, 0, 0, w, h);
+      cb(c.toDataURL("image/jpeg", 0.7));
+    } catch (e) { cb(null); }
+  }
+  function capture(id) {
+    function fail() { report("capture", { id: id, dataUrl: null }); }
+    try {
+      var game = window.__game;
+      if (game && game.renderer && typeof game.renderer.snapshot === "function") {
+        game.renderer.snapshot(function (img) {
+          downscale(img, function (url) { report("capture", { id: id, dataUrl: url }); });
+        });
+        return;
+      }
+      var cv = document.querySelector("canvas");
+      if (cv) {
+        var img2 = new Image();
+        img2.onload = function () { downscale(img2, function (url) { report("capture", { id: id, dataUrl: url }); }); };
+        img2.onerror = fail;
+        img2.src = cv.toDataURL("image/png");
+        return;
+      }
+      fail();
+    } catch (e) { fail(); }
+  }
+
+  // ---- Input fuzzer (ghost playtest so the judge sees real gameplay) ----
+  var KEYS = [
+    { key: "ArrowLeft", code: "ArrowLeft", keyCode: 37 },
+    { key: "ArrowRight", code: "ArrowRight", keyCode: 39 },
+    { key: "ArrowUp", code: "ArrowUp", keyCode: 38 },
+    { key: "ArrowDown", code: "ArrowDown", keyCode: 40 },
+    { key: " ", code: "Space", keyCode: 32 }
+  ];
+  var fuzzTimer = null;
+  function pressKey(k, ms) {
+    var down = new KeyboardEvent("keydown", { key: k.key, code: k.code, keyCode: k.keyCode, bubbles: true });
+    Object.defineProperty(down, "keyCode", { get: function () { return k.keyCode; } });
+    window.dispatchEvent(down);
+    setTimeout(function () {
+      var up = new KeyboardEvent("keyup", { key: k.key, code: k.code, keyCode: k.keyCode, bubbles: true });
+      Object.defineProperty(up, "keyCode", { get: function () { return k.keyCode; } });
+      window.dispatchEvent(up);
+    }, ms);
+  }
+  function tapCanvas() {
+    var cv = document.querySelector("canvas");
+    if (!cv) return;
+    var r = cv.getBoundingClientRect();
+    var x = r.left + r.width * (0.2 + Math.random() * 0.6);
+    var y = r.top + r.height * (0.2 + Math.random() * 0.6);
+    ["pointerdown", "pointerup"].forEach(function (t, i) {
+      setTimeout(function () {
+        cv.dispatchEvent(new PointerEvent(t, { clientX: x, clientY: y, bubbles: true, pointerId: 1, isPrimary: true }));
+      }, i * 60);
+    });
+  }
+  function fuzz(durationMs) {
+    if (fuzzTimer) clearInterval(fuzzTimer);
+    var until = Date.now() + (durationMs || 1500);
+    fuzzTimer = setInterval(function () {
+      if (Date.now() > until) { clearInterval(fuzzTimer); fuzzTimer = null; return; }
+      if (Math.random() < 0.25) tapCanvas();
+      else pressKey(KEYS[Math.floor(Math.random() * KEYS.length)], 120 + Math.random() * 250);
+    }, 150);
+  }
+
+  window.addEventListener("message", function (e) {
+    var d = e.data;
+    if (!d || d.__gameParent !== true) return;
+    if (d.type === "capture") capture(d.id);
+    else if (d.type === "fuzz") fuzz(d.durationMs);
+  });
 })();
 </script>
 <script>
@@ -99,7 +183,8 @@ window.addEventListener("load", function () {
   try {
     if (typeof Phaser === "undefined") throw new Error("Phaser failed to load from /vendor/phaser.min.js");
     if (typeof createGame !== "function") throw new Error("Template contract violation: createGame() is not defined");
-    createGame();
+    // Stash the instance so the harness can drive renderer.snapshot().
+    window.__game = createGame();
     if (window.__reportReady) window.__reportReady();
   } catch (e) {
     console.error("Boot failure: " + (e && e.message ? e.message : String(e)));
