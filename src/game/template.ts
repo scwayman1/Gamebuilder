@@ -427,11 +427,11 @@ window.__preloadArtAssets = function (scene) {
   // ---- color palettes ----
   var PAL = {
     sky:        { top: 0x87ceeb, mid: 0xc8e8f8, low: 0xfff2c8 },
-    space:      { top: 0x0a0a1f, mid: 0x1a1a3a, low: 0x2a1a4a },
+    space:      { top: 0x1e1b4b, mid: 0x312e81, low: 0x4c1d95 },
     sunset:     { top: 0xff7f50, mid: 0xff4d6d, low: 0x6b21a8 },
     dawn:       { top: 0xfde68a, mid: 0xfb923c, low: 0x7c3aed },
     underwater: { top: 0x0e7490, mid: 0x0891b2, low: 0x06b6d4 },
-    jungle:     { top: 0x166534, mid: 0x14532d, low: 0x052e16 },
+    jungle:     { top: 0x166534, mid: 0x15803d, low: 0x14532d },
     lab:        { top: 0xf3f4f6, mid: 0xe5e7eb, low: 0xd1d5db },
     field:      { top: 0x86efac, mid: 0x4ade80, low: 0x16a34a }
   };
@@ -823,7 +823,7 @@ window.__preloadArtAssets = function (scene) {
     img.setDisplaySize(w, h);
     img.setScrollFactor(0);
     img.setDepth(950);
-    img.setAlpha(Math.min(1, opts.intensity == null ? 0.85 : opts.intensity));
+    img.setAlpha(Math.min(1, opts.intensity == null ? 0.45 : opts.intensity));
     return img;
   }
   function bloomOverlay(scene, opts) {
@@ -835,7 +835,7 @@ window.__preloadArtAssets = function (scene) {
     img.setDisplaySize(w, h);
     img.setScrollFactor(0);
     img.setDepth(948);
-    img.setAlpha(Math.min(1, opts.intensity == null ? 0.9 : opts.intensity));
+    img.setAlpha(Math.min(1, opts.intensity == null ? 0.7 : opts.intensity));
     return img;
   }
   function filmGrain(scene) {
@@ -1020,9 +1020,6 @@ window.addEventListener("load", function () {
     if (typeof createGame !== "function") throw new Error("Template contract violation: createGame() is not defined");
     // Stash the instance so the harness can drive renderer.snapshot().
     window.__game = createGame();
-    // Hook into the first scene's boot to preload the SVG library before
-    // any user code runs. This guarantees __ensureAsset never races
-    // even if the Builder forgets to call __preloadArtAssets explicitly.
     var g = window.__game;
     if (g && g.scene && g.scene.scenes) {
       g.events.once("ready", function () {
@@ -1030,8 +1027,35 @@ window.addEventListener("load", function () {
           for (var i = 0; i < g.scene.scenes.length; i++) {
             var s = g.scene.scenes[i];
             if (s && s.textures) window.__preloadArtAssets(s);
+            // Safety net: if the LLM-authored scene didn't set a camera
+            // background color, set a soft default so an "empty" canvas
+            // is never solid black — easy to debug, never embarrassing.
+            if (s && s.cameras && s.cameras.main) {
+              var current = s.cameras.main.backgroundColor;
+              if (!current || current.alpha === 0 || (current.red === 0 && current.green === 0 && current.blue === 0)) {
+                s.cameras.main.setBackgroundColor("#bfdbfe");
+              }
+            }
           }
-        } catch (e) { /* eat — assets will fall back to lazy ensure */ }
+        } catch (e) { /* eat — non-fatal */ }
+        // Diagnostic: report canvas + scene state so the parent UI can
+        // tell whether content was actually drawn, even if the player
+        // sees a dark frame on first paint.
+        setTimeout(function () {
+          try {
+            var s2 = g.scene.scenes[0];
+            var report = {
+              width: g.scale.width,
+              height: g.scale.height,
+              canvasW: g.canvas ? g.canvas.width : null,
+              canvasH: g.canvas ? g.canvas.height : null,
+              displayW: g.canvas ? g.canvas.clientWidth : null,
+              displayH: g.canvas ? g.canvas.clientHeight : null,
+              displayListLen: s2 && s2.children && s2.children.list ? s2.children.list.length : null
+            };
+            try { parent.postMessage({ __gameHarness: true, type: "diagnostic", payload: report }, "*"); } catch (e) {}
+          } catch (e) {}
+        }, 600);
       });
     }
     if (window.__reportReady) window.__reportReady();
