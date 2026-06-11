@@ -78,8 +78,12 @@ export type GameArtifact = {
   templateId: string;
   title: string;
   design: GameDesign;
+  // Raw blocks retained so the repair loop can operate on source, not
+  // on assembled HTML.
+  code: GameCode;
   html: string;
   createdAt: number;
+  repairCount?: number;
 };
 
 // Messages posted from the iframe harness to the parent.

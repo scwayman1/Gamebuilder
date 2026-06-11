@@ -180,8 +180,10 @@ ${lastProblems.map((p, i) => `${i + 1}. ${p}`).join("\n")}`;
           templateId: PHASER_ARCADE_TEMPLATE.id,
           title: design.title,
           design,
+          code,
           html: assembleGameHtml(code.configCode, code.gameCode),
           createdAt: Date.now(),
+          repairCount: 0,
         };
         return {
           ok: true,
@@ -216,4 +218,135 @@ ${lastProblems.map((p, i) => `${i + 1}. ${p}`).join("\n")}`;
   return fail(
     `Builder could not produce valid code after ${repairCount} repair attempt(s). Last problems: ${lastProblems.join("; ")}`,
   );
+}
+
+// ---- Runtime repair (the Debug Skill's verified-fix protocol) ----
+//
+// The sandboxed game crashed in the user's browser; the harness captured
+// the exact runtime errors. Feed code + errors back to the Builder model
+// for a targeted fix, re-validate statically, return a new artifact.
+
+const REPAIR_SYSTEM = `You are the Debug stage of the AB Studios game engine. A Phaser 3 game you wrote crashed at runtime inside its sandbox. You receive the complete current code and the exact runtime errors captured by the harness.
+
+${PHASER_ARCADE_TEMPLATE.contract}
+
+REPAIR PROTOCOL:
+- Diagnose each runtime error and apply the MINIMAL fix. Do not redesign the game, rename config keys, or change mechanics that already work.
+- Common Phaser 3 pitfalls to check: using this.physics without enabling arcade physics in the config; touching objects in update() before create() has run; referencing destroyed objects; typos in Phaser API names; using scene callbacks with wrong \`this\` binding (use function() syntax registered via scene config, or arrow functions capturing the scene explicitly).
+- Resubmit the COMPLETE corrected code for both blocks, not a diff.
+
+Output the code object only: { configCode, gameCode }.`;
+
+export type RepairResult =
+  | { ok: true; artifact: GameArtifact; meta: EngineMeta }
+  | { ok: false; error: string; meta: EngineMeta };
+
+export async function repairGame(
+  artifact: GameArtifact,
+  runtimeErrors: string[],
+  apiKey: string,
+): Promise<RepairResult> {
+  const t0 = Date.now();
+  const stages: StageRun[] = [];
+  const keyFingerprint = maskKey(apiKey);
+  const openai = createOpenAI({ apiKey });
+
+  const errBlock = runtimeErrors
+    .slice(0, 10)
+    .map((e, i) => `${i + 1}. ${e}`)
+    .join("\n");
+
+  let lastProblems: string[] = [];
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const s0 = Date.now();
+    const staticSuffix =
+      attempt === 1
+        ? ""
+        : `\n\n---\nYour previous repair failed static validation:\n${lastProblems.map((p, i) => `${i + 1}. ${p}`).join("\n")}\nFix those too.`;
+    try {
+      const { object: code } = await generateObject({
+        model: openai(BUILDER_MODEL),
+        schema: GameCodeSchema,
+        system: REPAIR_SYSTEM,
+        prompt: `Game design:
+${JSON.stringify(artifact.design, null, 2)}
+
+---
+Current configCode:
+${artifact.code.configCode}
+
+---
+Current gameCode:
+${artifact.code.gameCode}
+
+---
+RUNTIME ERRORS captured by the harness:
+${errBlock}
+
+Repair the code.${staticSuffix}`,
+        temperature: 0.2,
+        maxRetries: 1,
+      });
+      stages.push({
+        name: "game-builder",
+        model: BUILDER_MODEL,
+        latencyMs: Date.now() - s0,
+        attempt,
+        ok: true,
+      });
+      const problems = validateGameCode(code, artifact.design);
+      stages.push({
+        name: "game-static-check",
+        model: "static",
+        latencyMs: 0,
+        attempt,
+        ok: problems.length === 0,
+        error: problems.length > 0 ? problems.join("; ") : undefined,
+      });
+      if (problems.length === 0) {
+        return {
+          ok: true,
+          artifact: {
+            ...artifact,
+            code,
+            html: assembleGameHtml(code.configCode, code.gameCode),
+            repairCount: (artifact.repairCount ?? 0) + 1,
+          },
+          meta: {
+            totalLatencyMs: Date.now() - t0,
+            stages,
+            revisionCount: attempt,
+            review: null,
+            residualIssues: [],
+            keyFingerprint,
+          },
+        };
+      }
+      lastProblems = problems;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      stages.push({
+        name: "game-builder",
+        model: BUILDER_MODEL,
+        latencyMs: Date.now() - s0,
+        attempt,
+        ok: false,
+        error: msg,
+      });
+      lastProblems = [`Repair model call failed: ${msg}`];
+    }
+  }
+
+  return {
+    ok: false,
+    error: `Repair failed after 2 attempts: ${lastProblems.join("; ")}`,
+    meta: {
+      totalLatencyMs: Date.now() - t0,
+      stages,
+      revisionCount: 2,
+      review: null,
+      residualIssues: [],
+      keyFingerprint,
+    },
+  };
 }

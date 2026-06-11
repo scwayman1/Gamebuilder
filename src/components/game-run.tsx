@@ -54,6 +54,33 @@ async function generateGame(
   };
 }
 
+const MAX_AUTO_REPAIRS = 2;
+// Wait this long after the first error so the harness can batch the
+// full crash signature before we spend a repair attempt.
+const REPAIR_DEBOUNCE_MS = 2500;
+
+async function requestRepair(
+  artifact: GameArtifact,
+  errors: GameRuntimeError[],
+): Promise<GameArtifact> {
+  const res = await fetch("/api/game/repair", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      artifact,
+      errors: errors.slice(0, 10).map((e) => e.message),
+    }),
+  });
+  const body = (await res.json().catch(() => ({}))) as {
+    artifact?: GameArtifact;
+    error?: string;
+  };
+  if (!res.ok || !body.artifact) {
+    throw new Error(body.error ?? `Repair server error: ${res.status}`);
+  }
+  return body.artifact;
+}
+
 export function GameRun({
   runId,
   brief,
@@ -63,11 +90,17 @@ export function GameRun({
 }) {
   const [state, setState] = useState<GenState>({ phase: "generating" });
   const [runtimeErrors, setRuntimeErrors] = useState<GameRuntimeError[]>([]);
+  const [repairing, setRepairing] = useState(false);
+  const [repairsUsed, setRepairsUsed] = useState(0);
+  const [repairNote, setRepairNote] = useState<string | null>(null);
   const started = useRef(false);
+  const repairTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const generate = () => {
     setState({ phase: "generating" });
     setRuntimeErrors([]);
+    setRepairsUsed(0);
+    setRepairNote(null);
     generateGame(brief)
       .then(({ artifact, meta }) => {
         saveGameArtifact(runId, artifact);
@@ -85,6 +118,53 @@ export function GameRun({
         });
       });
   };
+
+  const runRepair = (artifact: GameArtifact, errors: GameRuntimeError[]) => {
+    setRepairing(true);
+    setRepairNote(null);
+    requestRepair(artifact, errors)
+      .then((fixed) => {
+        saveGameArtifact(runId, fixed);
+        setRuntimeErrors([]);
+        setRepairsUsed((n) => n + 1);
+        setRepairNote(
+          `Auto-repair #${fixed.repairCount ?? 0} applied — rebooting the game.`,
+        );
+        setState({ phase: "ready", artifact: fixed, meta: null });
+      })
+      .catch((e: unknown) => {
+        setRepairNote(
+          `Auto-repair failed: ${e instanceof Error ? e.message : "unknown error"}. Try Regenerate for a fresh build.`,
+        );
+      })
+      .finally(() => setRepairing(false));
+  };
+
+  // Debug Skill: when the sandbox reports a crash, debounce to collect the
+  // full error batch, then auto-repair within budget.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runRepair is recreated each render; deps cover the trigger conditions
+  useEffect(() => {
+    if (state.phase !== "ready") return;
+    if (runtimeErrors.length === 0 || repairing) return;
+    if (repairsUsed >= MAX_AUTO_REPAIRS) {
+      setRepairNote(
+        `Auto-repair budget exhausted (${MAX_AUTO_REPAIRS}). Use Regenerate for a fresh build.`,
+      );
+      return;
+    }
+    const artifact = state.artifact;
+    if (repairTimer.current) clearTimeout(repairTimer.current);
+    repairTimer.current = setTimeout(() => {
+      // Re-read latest errors via state setter to avoid staleness.
+      setRuntimeErrors((latest) => {
+        if (latest.length > 0) runRepair(artifact, latest);
+        return latest;
+      });
+    }, REPAIR_DEBOUNCE_MS);
+    return () => {
+      if (repairTimer.current) clearTimeout(repairTimer.current);
+    };
+  }, [runtimeErrors, state, repairing, repairsUsed]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: run once per mount; generate is stable for the life of this run
   useEffect(() => {
@@ -184,10 +264,19 @@ export function GameRun({
             />
           </div>
 
-          {runtimeErrors.length > 0 ? (
+          {repairing ? (
+            <div className="flex items-center gap-2 rounded-lg border border-primary-100 bg-primary-50/40 p-3 text-sm">
+              <Loader2 className="size-4 animate-spin text-primary-500" />
+              <span>
+                Auto-repairing from the captured runtime errors (attempt{" "}
+                {repairsUsed + 1}/{MAX_AUTO_REPAIRS})…
+              </span>
+            </div>
+          ) : repairNote ? (
+            <p className="text-muted-foreground text-xs">{repairNote}</p>
+          ) : runtimeErrors.length > 0 ? (
             <p className="text-muted-foreground text-xs">
-              The runtime errors above will feed the auto-repair loop (coming
-              next). For now, use Regenerate to get a fresh build.
+              Crash detected — collecting the error batch for auto-repair…
             </p>
           ) : null}
         </CardContent>
