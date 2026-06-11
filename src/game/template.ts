@@ -7,6 +7,7 @@
 
 import { isFormulaSafe } from "./blueprint-formula";
 import type { GameDesign } from "./schema";
+import { svgAssetLibrary } from "./svg-assets";
 
 export type GameTemplate = {
   id: string;
@@ -29,12 +30,14 @@ export const PHASER_ARCADE_TEMPLATE: GameTemplate = {
 - gameCode must define \`function createGame()\` that returns \`new Phaser.Game({...})\`.
   - Use \`parent: "game"\`, \`type: Phaser.AUTO\`, width 1280, height 720, \`scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH }\`.
   - Use arcade physics if needed: \`physics: { default: "arcade" }\`.
-- GRAPHICS — USE THE ART LIBRARY FIRST. The harness exposes \`window.__art\` with composed Phaser scene primitives. PREFER these over raw rectangles whenever applicable. Available:
+- GRAPHICS — USE THE ART LIBRARY FIRST. The harness exposes \`window.__art\` backed by a HIGH-FIDELITY SVG SPRITE LIBRARY (real shading, gradients, shadows — orders of magnitude better than primitives). PREFER these over raw rectangles whenever applicable. Available:
   - Backgrounds: \`__art.background(scene, "sky"|"space"|"sunset"|"dawn"|"underwater"|"jungle"|"lab"|"field", { stars: true, ground: true })\`
-  - Decor: \`__art.sun(s,x,y,r)\`, \`__art.cloud(s,x,y,scale)\`, \`__art.mountains(s,baseY)\`, \`__art.tree(s,x,y,scale)\`, \`__art.field(s,baseY,"grass"|"lab-floor")\`
-  - Composed objects: \`__art.soccerGoal(s,x,y,scale)\`, \`__art.soccerBall(s,x,y,r)\`, \`__art.character(s,x,y,{pose:"stand"|"kick"|"throw"|"run", jersey:0xRRGGBB, scale:1})\`, \`__art.lever(s,x,y,{tilt:0, load:true, effort:true})\`, \`__art.rocket(s,x,y,{flame:true})\`, \`__art.beaker(s,x,y,{level:0.5, color:0x0ea5e9})\`
+  - Decor (SVG sprites): \`__art.sun(s,x,y,r)\`, \`__art.cloud(s,x,y,scale)\`, \`__art.mountains(s,baseY)\` (parallax layered), \`__art.tree(s,x,y,scale)\`, \`__art.field(s,baseY,"grass"|"lab-floor")\`
+  - Composed objects (SVG sprites with detailed shading): \`__art.soccerGoal(s,x,y,scale)\`, \`__art.soccerBall(s,x,y,r)\`, \`__art.character(s,x,y,{pose:"kick"|"throw"|"run"|"stand", jersey:0xRRGGBB, scale:1})\`, \`__art.lever(s,x,y,{tilt:0, load:true, effort:true})\`, \`__art.rocket(s,x,y,{flame:true})\` (flame animates automatically), \`__art.beaker(s,x,y,{color:0x0ea5e9})\`
+  - Custom topic art: when the library doesn't fit the topic, AUTHOR YOUR OWN SVG and pass it to \`__art.customSvg(scene, "<svg ...>...</svg>", x, y, { scale: 1 })\`. The harness loads it as a sprite. Use this for topic-specific scene elements (a microscope, an atom, an animal).
   - UI: \`__art.titleBar(s)\`, \`__art.ui.button(s,x,y,w,h,label,{color1,color2})\`, \`__art.ui.card(s,x,y,w,h,{border:true})\`, \`__art.ui.slider(s,x,y,w,{min,max,value,accent,onChange})\`
   - FX: \`__art.fx.particleBurst(s,x,y,{count,color})\`, \`__art.fx.glow(s,target,color,intensity)\`
+  - POST-PROCESSING: CALL \`__art.fx.postProcess(scene, { vignette: true, bloom: true })\` in create() AFTER all scene objects are added. Produces a cinematic vignette + bloom overlay that makes EVERY scene look polished. Skip only if the topic explicitly needs flat clinical visuals.
 - Beyond the art library: \`scene.add.rectangle / circle / triangle / star\`, \`scene.add.text\` (system-ui font), or generate textures in create() with \`scene.make.graphics().generateTexture(...)\`. Emoji in text objects (🦅🍎🌟) still work as quick sprites.
 - NEVER call \`this.load.image/audio/spritesheet\` with URLs. No preload of external anything.
 - INPUT: support keyboard (cursors / space) AND pointer (tap zones) so tablets work.
@@ -172,7 +175,9 @@ THIS TEMPLATE'S SHAPE:
 - One Phaser scene. NOT a game with score/win — an EXHIBIT the student plays with.
 - The student is not under stakes. They drag sliders, press Run, watch the animation, read the outcome, drag again. This is teaching, not testing.
 
-USE THE ART LIBRARY. The harness exposes \`window.__art\` (see full inventory below). DO NOT draw raw rectangles for known scene elements — call the helpers. This is the most important rule for visual quality.
+USE THE ART LIBRARY. The harness exposes \`window.__art\` backed by HIGH-FIDELITY SVG SPRITES (real shading + gradients + drop shadows). DO NOT draw raw rectangles for known scene elements. If a topic-specific element isn't in the library, AUTHOR AN SVG and pass it to \`__art.customSvg(scene, svgString, x, y, { scale })\`. Custom SVGs must be valid XML, viewBox-based, and use only fill/stroke/gradient — no scripts, no external refs. This is the most important rule for visual quality.
+
+REQUIRED POST-PROCESSING: Call \`__art.fx.postProcess(this, { vignette: true, bloom: true })\` at the END of create() — after all your scene elements. It adds a soft bloom + cinematic vignette overlay that makes every exhibit look polished. Non-negotiable.
 
 USE THE FORMULA EVALUATORS. The harness pre-builds formula closures at assembly time and exposes \`window.__outcomes\`. To compute an outcome at slider values:
     const v = { kickPower: 70, kickAngle: 45, spinRate: 5 };
@@ -181,11 +186,12 @@ USE THE FORMULA EVALUATORS. The harness pre-builds formula closures at assembly 
 - DO NOT build your own Function() or eval — the harness already did it server-side from the validated formula strings. Just call \`__outcomes[id](values)\`. Guard with Number.isFinite — show "—" if not.
 
 REQUIRED LAYOUT (1280x720, three zones):
-- SCENE ZONE (y=56..540) — must LOOK LIKE THE TOPIC. Pick the right backdrop and props from \`__art\`. Examples:
-  - Soccer kick: \`__art.background(this, "dawn", { ground: true })\`; \`__art.field(this, 480, "grass")\`; \`__art.soccerGoal(this, 1020, 440, 1.4)\`; \`__art.character(this, 320, 440, { pose: "kick", jersey: 0x1d4ed8 })\`; ball via \`__art.soccerBall(this, 360, 470, 14)\` that you'll tween toward the goal.
-  - Lever: \`__art.background(this, "lab")\`; \`__art.field(this, 480, "lab-floor")\`; \`__art.lever(this, 640, 460, { tilt: 0, load: true, effort: true, scale: 2 })\` with the tilt animated from formula.
-  - Rocket: \`__art.background(this, "space", { stars: true })\`; \`__art.rocket(this, 640, 540, { flame: true, scale: 2 })\` that tweens upward.
-  - Water cycle: \`__art.background(this, "sky")\`; \`__art.mountains(this, 480)\`; \`__art.sun(this, 1100, 100)\`; \`__art.cloud(this, 400, 140, 1.4)\` × 3; lake as \`scene.add.ellipse(640, 540, 600, 80, 0x0ea5e9)\`.
+- SCENE ZONE (y=56..540) — must LOOK LIKE THE TOPIC, with depth and atmosphere. Backdrop + mid-ground + foreground. Examples (use these as recipes):
+  - Soccer kick: \`__art.background(this, "dawn", { ground: true })\` → \`__art.mountains(this, 420)\` (distant) → \`__art.sun(this, 1140, 100, 38)\` → \`__art.cloud(this, 250, 90, 0.8)\` and \`__art.cloud(this, 880, 130, 0.9)\` → \`__art.field(this, 480, "grass")\` → \`__art.soccerGoal(this, 1020, 460, 1.5)\` (the goal goes IN FRONT of the field but BEHIND the player) → \`__art.character(this, 320, 470, { pose: "kick", jersey: 0x1d4ed8, scale: 1.4 })\` (player kicks rightward) → \`__art.soccerBall(this, 360, 510, 20)\` (the ball you'll tween toward the goal). Players should be sized ~280px tall; the goal ~280px tall too.
+  - Lever: \`__art.background(this, "lab")\` → \`__art.field(this, 500, "lab-floor")\` → \`__art.beaker(this, 200, 460, { scale: 1.2 })\` (decor) → \`__art.lever(this, 640, 460, { tilt: 0, load: true, effort: true, scale: 2 })\` (centerpiece, animate tilt).
+  - Rocket launch: \`__art.background(this, "space", { stars: true })\` → \`__art.mountains(this, 540)\` (silhouette, tint 0x0f172a) → \`__art.rocket(this, 640, 460, { flame: true, scale: 1.8 })\` (animate y upward; flame is auto-animated).
+  - Water cycle: \`__art.background(this, "sky")\` → \`__art.mountains(this, 420)\` → \`__art.sun(this, 1100, 110, 44)\` → 3-4 \`__art.cloud(this, ...)\` at varying heights/scales → \`__art.tree(this, x, 500, 1.4)\` × 3 along the foreground.
+  - Topic NOT in the recipes (microscope, atom, mitosis cell, ecosystem): use \`__art.customSvg(this, svgString, x, y, {scale})\` with a topic-specific SVG you author inline. Pair it with \`__art.background\` and \`__art.field\` for atmosphere.
 - READOUT ZONE (y=540..600) — \`__art.ui.card(this, 640, 570, 1200, 56, { fill: 0x0f172a, alpha: 0.85 })\`. For each outcome card: render an inner card or row showing "<label>: <value> <unit>". Primary outcome larger and accented. Update LIVE on slider drag.
 - CONTROL ZONE (y=600..720) — \`__art.ui.card(this, 640, 660, 1240, 120, { fill: 0xf3f4f6, alpha: 1, border: true })\`. Inside, for each variable in GAME_CONFIG.exhibit.variables (i=0..n-1):
   - Label text at (110, 620 + i * 28), fontSize 16px, dark gray.
@@ -265,6 +271,7 @@ const GAME_MARK = "/*{{GAME}}*/";
 const EXHIBIT_MARK = "/*{{EXHIBIT}}*/";
 
 function skeleton(): string {
+  const svgLib = svgAssetLibrary();
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -356,7 +363,20 @@ function skeleton(): string {
 })();
 </script>
 <script>
-// __ART__ v1 (frozen — rich procedural art library shared by every template.
+// __ASSETS__ (frozen — high-fidelity SVG sprite library, bundled as
+// data: URIs so the iframe never touches the network. The CSP allows
+// img-src data:, so Phaser can load these via textures.addBase64.)
+window.__svgAssets = ${JSON.stringify(svgLib)};
+window.__ensureAsset = function (scene, key) {
+  if (!scene.textures || scene.textures.exists("art." + key)) return "art." + key;
+  var src = window.__svgAssets[key];
+  if (!src) return null;
+  scene.textures.addBase64("art." + key, src);
+  return "art." + key;
+};
+</script>
+<script>
+// __ART__ v2 (frozen — rich art library shared by every template.
 // Exposes window.__art with atmospheric backgrounds, composed scene
 // primitives (soccer goal, lever, rocket, sun/cloud/mountain, etc.), and
 // properly designed UI chrome. Built from Phaser graphics + text so we
@@ -408,304 +428,149 @@ function skeleton(): string {
     return container;
   }
 
-  // ---- sun, with radial glow ----
+  // ---- sun: sprite with optional bonus halo for blooming ----
   function sun(scene, x, y, r) {
     r = r || 32;
     var c = scene.add.container(x, y);
-    for (var i = 4; i >= 1; i--) {
-      var halo = scene.add.circle(0, 0, r * (1 + i * 0.6), 0xfff2a8, 0.06 * i);
-      c.add(halo);
-    }
-    c.add(scene.add.circle(0, 0, r, 0xfde047));
-    c.add(scene.add.circle(0, -r * 0.25, r * 0.5, 0xfff4b0, 0.5));
+    c.add(scene.add.circle(0, 0, r * 2.4, 0xfff2a8, 0.08));
+    c.add(sprite(scene, "sun", 0, 0, { width: r * 2.6, height: r * 2.6 }));
     return c;
   }
 
-  // ---- soft cloud (3-5 overlapping ellipses with highlight) ----
+  // ---- cloud sprite (multi-layer SVG with depth + highlight) ----
   function cloud(scene, x, y, scale) {
-    scale = scale || 1;
-    var c = scene.add.container(x, y);
-    var puffs = [
-      { x: -28, y: 4, r: 18 },
-      { x: -8, y: -4, r: 22 },
-      { x: 16, y: 0, r: 20 },
-      { x: 32, y: 8, r: 16 }
-    ];
-    for (var i = 0; i < puffs.length; i++) {
-      var p = puffs[i];
-      c.add(scene.add.ellipse(p.x * scale, (p.y + 4) * scale, p.r * 2.2 * scale, p.r * 1.4 * scale, 0x000000, 0.08));
-    }
-    for (var j = 0; j < puffs.length; j++) {
-      var q = puffs[j];
-      c.add(scene.add.ellipse(q.x * scale, q.y * scale, q.r * 2.2 * scale, q.r * 1.4 * scale, 0xffffff, 1));
-    }
-    c.add(scene.add.ellipse(-12 * scale, -10 * scale, 24 * scale, 8 * scale, 0xffffff, 0.6));
-    return c;
+    return sprite(scene, "cloud", x, y, { scale: scale || 1 });
   }
 
-  // ---- mountain range (layered triangles with snow caps) ----
+  // ---- mountain range: parallax of layered detailed SVG mountains ----
   function mountains(scene, baseY, opts) {
     opts = opts || {};
     var c = scene.add.container(0, 0);
     var w = scene.scale.width;
-    var layers = [
-      { count: 3, color: 0x4b5563, h: 220, snow: true },
-      { count: 4, color: 0x6b7280, h: 150, snow: false },
-      { count: 5, color: 0x9ca3af, h: 100, snow: false }
-    ];
-    for (var i = 0; i < layers.length; i++) {
-      var L = layers[i];
-      for (var j = 0; j < L.count; j++) {
-        var cx = (w / L.count) * j + (w / L.count) * 0.5 + (Math.random() - 0.5) * 30;
-        var peakH = L.h + Math.random() * 40;
-        var halfBase = peakH * 0.9;
-        var g = scene.add.graphics();
-        g.fillStyle(L.color, 1);
-        g.fillTriangle(cx - halfBase, baseY, cx + halfBase, baseY, cx, baseY - peakH);
-        c.add(g);
-        if (L.snow) {
-          var sg = scene.add.graphics();
-          sg.fillStyle(0xffffff, 1);
-          sg.fillTriangle(cx - halfBase * 0.25, baseY - peakH * 0.7, cx + halfBase * 0.25, baseY - peakH * 0.7, cx, baseY - peakH);
-          c.add(sg);
-        }
-      }
-    }
+    // Back layer (muted, distant)
+    var back = sprite(scene, "mountain", w * 0.5, baseY, {
+      originY: 1, width: w * 1.1, alpha: 0.65, tint: 0x64748b
+    });
+    c.add(back);
+    // Front layer (vivid, closer)
+    var frontL = sprite(scene, "mountain", w * 0.3, baseY + 10, {
+      originY: 1, width: w * 0.7
+    });
+    c.add(frontL);
+    var frontR = sprite(scene, "mountain", w * 0.75, baseY + 14, {
+      originY: 1, width: w * 0.65
+    });
+    c.add(frontR);
     return c;
   }
 
-  // ---- tree (trunk + clustered crown) ----
+  // ---- tree sprite (detailed leaf clusters + shading) ----
   function tree(scene, x, y, scale) {
-    scale = scale || 1;
-    var c = scene.add.container(x, y);
-    c.add(scene.add.rectangle(0, 0, 14 * scale, 50 * scale, 0x713f12));
-    var crowns = [
-      { x: 0, y: -50, r: 26 },
-      { x: -16, y: -38, r: 18 },
-      { x: 16, y: -38, r: 18 },
-      { x: 0, y: -64, r: 20 }
-    ];
-    for (var i = 0; i < crowns.length; i++) {
-      var k = crowns[i];
-      c.add(scene.add.circle(k.x * scale, k.y * scale, (k.r + 1) * scale, 0x14532d));
-    }
-    for (var i2 = 0; i2 < crowns.length; i2++) {
-      var k2 = crowns[i2];
-      c.add(scene.add.circle(k2.x * scale, k2.y * scale, k2.r * scale, 0x16a34a));
-    }
-    c.add(scene.add.circle(-6 * scale, -56 * scale, 6 * scale, 0x86efac, 0.6));
-    return c;
+    return sprite(scene, "tree", x, y, { scale: scale || 1, originY: 1 });
   }
 
-  // ---- soccer goal (frame + net hatch + ground shadow) ----
+  // ---- sprite-backed helpers — render the bundled SVG asset library at
+  // texture quality. The first call for any key registers the texture
+  // via __ensureAsset(); subsequent calls just grab it from the cache.
+  function sprite(scene, key, x, y, opts) {
+    opts = opts || {};
+    var k = window.__ensureAsset(scene, key);
+    if (!k) return scene.add.container(x, y);
+    var img = scene.add.image(x, y, k);
+    img.setOrigin(opts.originX == null ? 0.5 : opts.originX, opts.originY == null ? 0.5 : opts.originY);
+    if (opts.scale) img.setScale(opts.scale);
+    else if (opts.width) img.setDisplaySize(opts.width, opts.height || opts.width);
+    if (opts.alpha != null) img.setAlpha(opts.alpha);
+    if (opts.tint != null) img.setTint(opts.tint);
+    return img;
+  }
+
+  // Goal / ball / player: detailed SVG sprites with gradients + shadows.
   function soccerGoal(scene, x, y, scale) {
-    scale = scale || 1;
-    var c = scene.add.container(x, y);
-    var W = 140 * scale, H = 90 * scale, depth = 28 * scale;
-    c.add(scene.add.ellipse(0, H * 0.5 + 4, W * 1.05, 8 * scale, 0x000000, 0.25));
-    var net = scene.add.graphics();
-    net.fillStyle(0xffffff, 0.5);
-    net.fillRect(-W * 0.5, -H * 0.5, W, H);
-    net.lineStyle(1, 0x4b5563, 0.5);
-    for (var nx = -W * 0.5; nx <= W * 0.5; nx += 10 * scale) {
-      net.beginPath();
-      net.moveTo(nx, -H * 0.5);
-      net.lineTo(nx, H * 0.5);
-      net.strokePath();
-    }
-    for (var ny = -H * 0.5; ny <= H * 0.5; ny += 10 * scale) {
-      net.beginPath();
-      net.moveTo(-W * 0.5, ny);
-      net.lineTo(W * 0.5, ny);
-      net.strokePath();
-    }
-    c.add(net);
-    var frame = scene.add.graphics();
-    frame.lineStyle(6 * scale, 0xffffff, 1);
-    frame.strokeRect(-W * 0.5, -H * 0.5, W, H);
-    frame.lineStyle(4 * scale, 0xd1d5db, 1);
-    frame.beginPath();
-    frame.moveTo(-W * 0.5, -H * 0.5);
-    frame.lineTo(-W * 0.5 - depth, -H * 0.5 + 8 * scale);
-    frame.moveTo(W * 0.5, -H * 0.5);
-    frame.lineTo(W * 0.5 + depth, -H * 0.5 + 8 * scale);
-    frame.moveTo(-W * 0.5, H * 0.5);
-    frame.lineTo(-W * 0.5 - depth, H * 0.5 + 8 * scale);
-    frame.moveTo(W * 0.5, H * 0.5);
-    frame.lineTo(W * 0.5 + depth, H * 0.5 + 8 * scale);
-    frame.strokePath();
-    c.add(frame);
-    return c;
+    return sprite(scene, "soccer_goal", x, y, { scale: (scale || 1) * 1.2 });
   }
-
-  // ---- soccer ball (white circle with rotated pentagon panels) ----
   function soccerBall(scene, x, y, r) {
-    r = r || 12;
-    var c = scene.add.container(x, y);
-    c.add(scene.add.ellipse(0, r + 2, r * 2, r * 0.4, 0x000000, 0.3));
-    c.add(scene.add.circle(0, 0, r, 0xffffff));
-    var penta = scene.add.graphics();
-    penta.fillStyle(0x111827, 1);
-    for (var k = 0; k < 5; k++) {
-      var a = (k / 5) * Math.PI * 2 - Math.PI / 2;
-      var px = Math.cos(a) * r * 0.5;
-      var py = Math.sin(a) * r * 0.5;
-      penta.fillCircle(px, py, r * 0.18);
-    }
-    penta.fillCircle(0, 0, r * 0.18);
-    c.add(penta);
-    c.add(scene.add.circle(-r * 0.3, -r * 0.3, r * 0.35, 0xffffff, 0.5));
-    return c;
+    return sprite(scene, "soccer_ball", x, y, { width: (r || 12) * 2.5, height: (r || 12) * 2.5 });
   }
-
-  // ---- stylized human figure (head, body, legs, arms; pose by opts.pose) ----
   function character(scene, x, y, opts) {
     opts = opts || {};
-    var pose = opts.pose || "stand"; // stand | kick | throw | run
-    var jersey = opts.jersey || 0x2563eb;
-    var skin = opts.skin || 0xfbbf24;
-    var pants = opts.pants || 0x1e3a8a;
+    // pose is reflected by flipping/scaling for now; jersey color via tint
     var s = opts.scale || 1;
-    var c = scene.add.container(x, y);
-    c.add(scene.add.ellipse(0, 64 * s, 30 * s, 6 * s, 0x000000, 0.3));
-    c.add(scene.add.rectangle(-8 * s, 50 * s, 10 * s, 28 * s, pants));
-    c.add(scene.add.rectangle(8 * s, 50 * s, 10 * s, 28 * s, pants));
-    if (pose === "kick") {
-      var leg = scene.add.rectangle(20 * s, 36 * s, 30 * s, 9 * s, pants);
-      leg.setRotation(-0.7);
-      c.add(leg);
-      c.add(scene.add.ellipse(34 * s, 28 * s, 14 * s, 7 * s, 0x111827));
-    } else if (pose === "run") {
-      var leg2 = scene.add.rectangle(14 * s, 50 * s, 10 * s, 28 * s, pants);
-      leg2.setRotation(0.4);
-      c.add(leg2);
+    var spr = sprite(scene, "soccer_player", x, y, { scale: s });
+    if (opts.pose === "kick") {
+      // pre-rendered kick pose is the default; nothing to do
+    } else if (opts.pose === "throw") {
+      spr.setFlipX(true);
     }
-    c.add(scene.add.rectangle(0, 22 * s, 32 * s, 36 * s, jersey));
-    c.add(scene.add.rectangle(0, 18 * s, 28 * s, 4 * s, 0xffffff, 0.4));
-    c.add(scene.add.rectangle(-19 * s, 18 * s, 8 * s, 26 * s, jersey));
-    c.add(scene.add.rectangle(19 * s, 18 * s, 8 * s, 26 * s, jersey));
-    if (pose === "throw") {
-      var arm = scene.add.rectangle(22 * s, 6 * s, 26 * s, 8 * s, jersey);
-      arm.setRotation(-0.5);
-      c.add(arm);
+    if (opts.jersey != null) {
+      // tint preserves shading via multiply
+      var hex = typeof opts.jersey === "number" ? opts.jersey : 0xffffff;
+      spr.setTint(hex);
     }
-    c.add(scene.add.circle(0, -8 * s, 11 * s, skin));
-    c.add(scene.add.ellipse(-3 * s, -10 * s, 5 * s, 4 * s, 0xffffff));
-    c.add(scene.add.ellipse(3 * s, -10 * s, 5 * s, 4 * s, 0xffffff));
-    c.add(scene.add.ellipse(-3 * s, -10 * s, 2 * s, 2 * s, 0x111827));
-    c.add(scene.add.ellipse(3 * s, -10 * s, 2 * s, 2 * s, 0x111827));
-    c.add(scene.add.arc(0, -4 * s, 4 * s, 0, Math.PI, false, 0xb91c1c, 1).setRotation(0));
-    c.add(scene.add.ellipse(0, -19 * s, 24 * s, 8 * s, 0x111827));
-    c.add(scene.add.ellipse(0, -22 * s, 18 * s, 14 * s, 0x111827));
-    return c;
+    return spr;
   }
 
-  // ---- lever (beam + fulcrum + optional load/effort) ----
+  // ---- lever sprite (wood beam + steel fulcrum + tilt-aware container) ----
   function lever(scene, x, y, opts) {
     opts = opts || {};
     var s = opts.scale || 1;
-    var tilt = opts.tilt || 0;
     var c = scene.add.container(x, y);
-    var fulcrum = scene.add.graphics();
-    fulcrum.fillStyle(0x6b7280, 1);
-    fulcrum.fillTriangle(-22 * s, 30 * s, 22 * s, 30 * s, 0, -8 * s);
-    fulcrum.fillStyle(0x374151, 1);
-    fulcrum.fillTriangle(-2 * s, 30 * s, 22 * s, 30 * s, 0, -8 * s);
-    c.add(fulcrum);
-    var beam = scene.add.rectangle(0, -8 * s, 240 * s, 14 * s, 0x92400e);
-    beam.setRotation(tilt);
-    c.add(beam);
-    var hi = scene.add.rectangle(0, -12 * s, 240 * s, 4 * s, 0xfbbf24, 0.5);
-    hi.setRotation(tilt);
-    c.add(hi);
+    var leverSpr = sprite(scene, "lever", 0, 0, { scale: s });
+    if (opts.tilt) leverSpr.setRotation(opts.tilt);
+    c.add(leverSpr);
     if (opts.load) {
-      var lx = Math.cos(tilt) * -110 * s, ly = -8 * s + Math.sin(tilt) * -110 * s;
-      c.add(scene.add.rectangle(lx, ly - 14 * s, 30 * s, 28 * s, 0x78350f));
-      c.add(scene.add.rectangle(lx, ly - 14 * s, 30 * s, 4 * s, 0xfbbf24, 0.5));
+      var lx = Math.cos(opts.tilt || 0) * -120 * s;
+      var ly = Math.sin(opts.tilt || 0) * -120 * s - 20 * s;
+      var box = scene.add.rectangle(lx, ly, 36 * s, 28 * s, 0x78350f);
+      box.setStrokeStyle(2 * s, 0x451a03);
+      c.add(box);
+      c.add(scene.add.rectangle(lx, ly - 12 * s, 36 * s, 4 * s, 0xfbbf24, 0.4));
     }
     if (opts.effort) {
-      var ex = Math.cos(tilt) * 110 * s, ey = -8 * s + Math.sin(tilt) * 110 * s;
+      var ex = Math.cos(opts.tilt || 0) * 120 * s;
+      var ey = Math.sin(opts.tilt || 0) * 120 * s - 8 * s;
       var arrow = scene.add.graphics();
       arrow.fillStyle(0xef4444, 1);
-      arrow.fillTriangle(ex - 8 * s, ey - 24 * s, ex + 8 * s, ey - 24 * s, ex, ey - 8 * s);
-      arrow.fillRect(ex - 4 * s, ey - 50 * s, 8 * s, 26 * s);
+      arrow.fillTriangle(ex - 10 * s, ey - 30 * s, ex + 10 * s, ey - 30 * s, ex, ey - 10 * s);
+      arrow.fillRoundedRect(ex - 5 * s, ey - 60 * s, 10 * s, 30 * s, 3 * s);
+      arrow.fillStyle(0xffffff, 0.4);
+      arrow.fillRoundedRect(ex - 3 * s, ey - 58 * s, 3 * s, 26 * s, 1.5 * s);
       c.add(arrow);
     }
     return c;
   }
 
-  // ---- rocket (body + nose + fins + window) ----
+  // ---- rocket sprite (with optional animated flame) ----
   function rocket(scene, x, y, opts) {
     opts = opts || {};
     var s = opts.scale || 1;
     var c = scene.add.container(x, y);
-    var bodyHi = scene.add.graphics();
-    bodyHi.fillStyle(0xe5e7eb, 1);
-    bodyHi.fillRoundedRect(-18 * s, -30 * s, 36 * s, 90 * s, 6 * s);
-    c.add(bodyHi);
-    var bodyLo = scene.add.graphics();
-    bodyLo.fillStyle(0x9ca3af, 1);
-    bodyLo.fillRoundedRect(6 * s, -30 * s, 12 * s, 90 * s, 6 * s);
-    c.add(bodyLo);
-    var nose = scene.add.graphics();
-    nose.fillStyle(0xdc2626, 1);
-    nose.fillTriangle(-18 * s, -30 * s, 18 * s, -30 * s, 0, -66 * s);
-    nose.fillStyle(0xfca5a5, 1);
-    nose.fillTriangle(-4 * s, -30 * s, 4 * s, -30 * s, 0, -64 * s);
-    c.add(nose);
-    var fL = scene.add.graphics();
-    fL.fillStyle(0xdc2626, 1);
-    fL.fillTriangle(-18 * s, 30 * s, -18 * s, 70 * s, -36 * s, 70 * s);
-    c.add(fL);
-    var fR = scene.add.graphics();
-    fR.fillStyle(0xdc2626, 1);
-    fR.fillTriangle(18 * s, 30 * s, 18 * s, 70 * s, 36 * s, 70 * s);
-    c.add(fR);
-    c.add(scene.add.circle(0, -6 * s, 10 * s, 0x0ea5e9));
-    c.add(scene.add.circle(-3 * s, -9 * s, 5 * s, 0xbae6fd, 0.7));
-    c.add(scene.add.circle(0, -6 * s, 11 * s, 0xffffff, 0).setStrokeStyle(2 * s, 0xffffff));
+    var body = sprite(scene, "rocket", 0, 0, { scale: s });
+    c.add(body);
     if (opts.flame) {
-      var flame = scene.add.graphics();
-      flame.fillStyle(0xfbbf24, 0.9);
-      flame.fillTriangle(-10 * s, 60 * s, 10 * s, 60 * s, 0, 110 * s);
-      flame.fillStyle(0xfb923c, 1);
-      flame.fillTriangle(-7 * s, 60 * s, 7 * s, 60 * s, 0, 100 * s);
-      flame.fillStyle(0xfef3c7, 1);
-      flame.fillTriangle(-3 * s, 60 * s, 3 * s, 60 * s, 0, 86 * s);
+      var flame = sprite(scene, "rocket_flame", 0, 100 * s, { scale: s });
       c.add(flame);
+      scene.tweens.add({
+        targets: flame,
+        scaleY: s * 1.15,
+        scaleX: s * 0.92,
+        alpha: 0.85,
+        duration: 90,
+        yoyo: true,
+        repeat: -1
+      });
     }
     return c;
   }
 
-  // ---- beaker / flask ----
+  // ---- beaker sprite (glass + liquid + measurement marks) ----
   function beaker(scene, x, y, opts) {
     opts = opts || {};
     var s = opts.scale || 1;
-    var level = opts.level == null ? 0.55 : opts.level;
-    var color = opts.color || 0x0ea5e9;
     var c = scene.add.container(x, y);
-    var glass = scene.add.graphics();
-    glass.fillStyle(0xffffff, 0.15);
-    glass.fillRoundedRect(-22 * s, -36 * s, 44 * s, 70 * s, 4 * s);
-    c.add(glass);
-    var liq = scene.add.graphics();
-    liq.fillStyle(color, 0.85);
-    var liqH = 64 * s * level;
-    liq.fillRoundedRect(-20 * s, 32 * s - liqH, 40 * s, liqH, 3 * s);
-    c.add(liq);
-    var meniscus = scene.add.ellipse(0, 32 * s - liqH, 40 * s, 4 * s, 0xffffff, 0.5);
-    c.add(meniscus);
-    var rim = scene.add.graphics();
-    rim.lineStyle(2.5 * s, 0xe5e7eb, 1);
-    rim.strokeRoundedRect(-22 * s, -36 * s, 44 * s, 70 * s, 4 * s);
-    rim.lineStyle(2 * s, 0xe5e7eb, 1);
-    rim.strokePath();
-    rim.beginPath();
-    rim.moveTo(-26 * s, -36 * s);
-    rim.lineTo(26 * s, -36 * s);
-    rim.strokePath();
-    c.add(rim);
-    c.add(scene.add.rectangle(-14 * s, 0 * s, 4 * s, 40 * s, 0xffffff, 0.3));
+    var spr = sprite(scene, "beaker", 0, 0, { scale: s });
+    if (opts.color != null) spr.setTint(opts.color);
+    c.add(spr);
     return c;
   }
 
@@ -881,6 +746,77 @@ function skeleton(): string {
     return c;
   }
 
+  // ---- custom SVG (Builder escape hatch for topic-specific art).
+  // The Builder can author its own SVG string and drop it into the scene
+  // at sprite quality. The harness loads it via addBase64 — the iframe
+  // never touches new Function or eval to do this.
+  var customSvgCount = 0;
+  function customSvg(scene, svgText, x, y, opts) {
+    opts = opts || {};
+    var key = "art.custom." + (++customSvgCount);
+    if (!scene.textures.exists(key)) {
+      var b64;
+      try {
+        b64 = window.btoa(unescape(encodeURIComponent(String(svgText))));
+      } catch (e) { return scene.add.container(x, y); }
+      scene.textures.addBase64(key, "data:image/svg+xml;base64," + b64);
+    }
+    var img = scene.add.image(x, y, key);
+    img.setOrigin(opts.originX == null ? 0.5 : opts.originX, opts.originY == null ? 0.5 : opts.originY);
+    if (opts.scale) img.setScale(opts.scale);
+    else if (opts.width) img.setDisplaySize(opts.width, opts.height || opts.width);
+    if (opts.alpha != null) img.setAlpha(opts.alpha);
+    return img;
+  }
+
+  // ---- post-processing: vignette + soft bloom over the camera.
+  // Cheap to compute, but dramatically lifts perceived quality.
+  function vignette(scene, opts) {
+    opts = opts || {};
+    var w = scene.scale.width, h = scene.scale.height;
+    var v = scene.add.graphics().setDepth(950).setScrollFactor(0);
+    var inner = Math.min(w, h) * 0.6;
+    var outer = Math.sqrt(w * w + h * h) * 0.7;
+    for (var r = inner; r < outer; r += 24) {
+      var a = ((r - inner) / (outer - inner)) * (opts.intensity || 0.55);
+      v.fillStyle(0x000000, Math.min(0.05, a * 0.05));
+      v.fillRect(0, 0, w, h);
+    }
+    var corners = scene.add.graphics().setDepth(951).setScrollFactor(0);
+    corners.fillStyle(0x000000, 0.55);
+    corners.fillRect(0, 0, w, h);
+    corners.fillStyle(0x000000, 0);
+    corners.fillRect(40, 40, w - 80, h - 80);
+    corners.setBlendMode(Phaser.BlendModes.MULTIPLY);
+    return v;
+  }
+  function filmGrain(scene) {
+    var w = scene.scale.width, h = scene.scale.height;
+    var g = scene.add.graphics().setDepth(949).setScrollFactor(0).setAlpha(0.05);
+    for (var i = 0; i < 800; i++) {
+      g.fillStyle(0xffffff, 0.3);
+      g.fillRect(Math.random() * w, Math.random() * h, 1, 1);
+    }
+    return g;
+  }
+  function bloomCanvas(scene) {
+    // Bloom-lite: a soft white radial overlay at the top of the scene
+    // simulating atmospheric light scatter.
+    var w = scene.scale.width, h = scene.scale.height;
+    var b = scene.add.graphics().setDepth(948).setScrollFactor(0);
+    b.fillStyle(0xffffff, 0.12);
+    b.fillEllipse(w * 0.5, h * 0.15, w * 1.2, h * 0.5);
+    return b;
+  }
+  function postProcess(scene, opts) {
+    opts = opts || {};
+    var layers = scene.add.container(0, 0).setDepth(945).setScrollFactor(0);
+    if (opts.bloom !== false) bloomCanvas(scene);
+    if (opts.grain) filmGrain(scene);
+    if (opts.vignette !== false) vignette(scene, { intensity: opts.intensity });
+    return layers;
+  }
+
   window.__art = {
     PAL: PAL,
     background: background,
@@ -896,6 +832,9 @@ function skeleton(): string {
     beaker: beaker,
     field: field,
     titleBar: titleBar,
+    sprite: sprite,
+    customSvg: customSvg,
+    assets: function () { return Object.keys(window.__svgAssets); },
     ui: {
       button: uiButton,
       card: uiCard,
@@ -903,7 +842,11 @@ function skeleton(): string {
     },
     fx: {
       particleBurst: particleBurst,
-      glow: glow
+      glow: glow,
+      vignette: vignette,
+      filmGrain: filmGrain,
+      bloom: bloomCanvas,
+      postProcess: postProcess
     }
   };
 })();
