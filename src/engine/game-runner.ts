@@ -209,7 +209,7 @@ ${lastProblems.map((p, i) => `${i + 1}. ${p}`).join("\n")}`;
           title: design.title,
           design,
           code,
-          html: assembleGameHtml(code.configCode, code.gameCode),
+          html: assembleGameHtml(code.configCode, code.gameCode, design),
           createdAt: Date.now(),
           repairCount: 0,
         };
@@ -340,7 +340,11 @@ Repair the code.${staticSuffix}`,
           artifact: {
             ...artifact,
             code,
-            html: assembleGameHtml(code.configCode, code.gameCode),
+            html: assembleGameHtml(
+              code.configCode,
+              code.gameCode,
+              artifact.design,
+            ),
             repairCount: (artifact.repairCount ?? 0) + 1,
           },
           meta: {

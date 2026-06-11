@@ -6,6 +6,7 @@ export const GAME_COMPANION_TYPES = [
   "Arcade Game (experimental)",
   "Flashcard Quest (experimental)",
   "Trail Master (experimental)",
+  "Lab Exhibit (experimental)",
 ] as const;
 
 export function isGameCompanionType(companionType: string): boolean {
@@ -18,6 +19,7 @@ export const TEMPLATE_IDS = [
   "phaser3-arcade",
   "flashcard-quest",
   "trail-master",
+  "lab-exhibit",
 ] as const;
 export type TemplateId = (typeof TEMPLATE_IDS)[number];
 
@@ -26,7 +28,7 @@ export const GameDesignSchema = z.object({
   templateId: z
     .enum(TEMPLATE_IDS)
     .describe(
-      "Which template to build into. 'phaser3-arcade' for projectile/dodge/collect; 'flashcard-quest' for recall under stakes with a deck of cards; 'trail-master' for a branching journey with consequential decisions at each waypoint. Pick based on the brief.",
+      "Which template to build into. 'phaser3-arcade' for projectile/dodge/collect; 'flashcard-quest' for recall under stakes with a deck of cards; 'trail-master' for a branching journey with consequential decisions at each waypoint; 'lab-exhibit' for slider-driven interactive exhibits that look like the actual topic (soccer goal, lever, ecosystem, water cycle, rocket launch). Pick based on the brief.",
     ),
   title: z.string(),
   genre: z
@@ -107,6 +109,65 @@ export const GameDesignSchema = z.object({
     .optional()
     .describe(
       "REQUIRED when templateId is 'flashcard-quest' or 'trail-master'.",
+    ),
+  exhibit: z
+    .object({
+      sceneDescription: z
+        .string()
+        .describe(
+          "Concrete visual brief for the Builder: WHAT the student sees on screen at rest. e.g. 'A soccer player figure (emoji 🦵) left-of-center facing right, a soccer goal (white rectangle with net hatching) on the right edge, a green field below, a sky-blue background. The ball (white circle with pentagon) sits at the player's foot.' Specify colors, positions, primitives. NO image assets.",
+        ),
+      animationDescription: z
+        .string()
+        .describe(
+          "Concrete visual brief: what ANIMATES when the student presses Run. e.g. 'The ball launches from the player's foot, follows a curved arc whose shape depends on kickAngle and curves sideways with spinRate using Math.sin. If the ball passes the goal's mouth, the net wobbles and the score increments. A trail of small dots fades behind the ball.' Be specific about which variables drive which motion.",
+        ),
+      variables: z
+        .array(
+          z.object({
+            id: z
+              .string()
+              .regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "must be a JS identifier"),
+            label: z.string(),
+            min: z.number(),
+            default: z.number(),
+            max: z.number(),
+            unit: z.string(),
+            studentExplanation: z
+              .string()
+              .describe("Kid-friendly one-line description of the slider."),
+          }),
+        )
+        .min(2)
+        .max(5)
+        .describe(
+          "The sliders the student manipulates. Same shape as Simulation Lab variables. min < default < max. The Builder reads these from GAME_CONFIG.exhibit.variables.",
+        ),
+      outcomes: z
+        .array(
+          z.object({
+            id: z
+              .string()
+              .regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "must be a JS identifier"),
+            label: z.string(),
+            unit: z.string(),
+            formula: z
+              .string()
+              .describe(
+                "JS expression in the variable ids + Math.* only. Must evaluate finite across all (min, default, max) combinations. Used both for the readout and to drive the animation.",
+              ),
+            isPrimary: z.boolean(),
+          }),
+        )
+        .min(1)
+        .max(3)
+        .describe(
+          "Computed outcomes the exhibit displays as a readout. Exactly one isPrimary=true.",
+        ),
+    })
+    .optional()
+    .describe(
+      "REQUIRED when templateId is 'lab-exhibit'. The interactive exhibit: a topic-specific Phaser scene, sliders that change real numbers, computed outcomes, and an animation that visualizes the formula at play.",
     ),
   trail: z
     .object({

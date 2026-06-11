@@ -102,17 +102,14 @@ export function inferVisualizationKind(
   return "projectile";
 }
 
-const ALLOWED_FORMULA_TOKENS = /^[\s\d\w+\-*/().,]+$/;
-
-export function isFormulaSafe(formula: string): boolean {
-  return ALLOWED_FORMULA_TOKENS.test(formula);
-}
+export { isFormulaSafe } from "../game/blueprint-formula";
+import { isFormulaSafe as _isFormulaSafe } from "../game/blueprint-formula";
 
 export function evalFormula(
   formula: string,
   vars: Record<string, number>,
 ): number {
-  if (!isFormulaSafe(formula)) return Number.NaN;
+  if (!_isFormulaSafe(formula)) return Number.NaN;
   try {
     const ids = Object.keys(vars);
     const fn = new Function(
