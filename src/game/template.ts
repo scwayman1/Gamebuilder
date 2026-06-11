@@ -372,12 +372,47 @@ function skeleton(): string {
 // data: URIs so the iframe never touches the network. The CSP allows
 // img-src data:, so Phaser can load these via textures.addBase64.)
 window.__svgAssets = ${JSON.stringify(svgLib)};
+// Track per-key state across the whole game: pending vs ready. addBase64
+// is asynchronous — the texture is not actually registered until the
+// HTMLImageElement decodes. Without this guard, calling sprite("mountain")
+// three times in the same frame triggers three addBase64 calls in flight
+// before the first completes → "Texture key already in use" on retries.
+window.__assetState = window.__assetState || {};
 window.__ensureAsset = function (scene, key) {
-  if (!scene.textures || scene.textures.exists("art." + key)) return "art." + key;
+  var fullKey = "art." + key;
+  if (!scene || !scene.textures) return fullKey;
+  if (window.__assetState[fullKey] === "ready" || scene.textures.exists(fullKey)) {
+    window.__assetState[fullKey] = "ready";
+    return fullKey;
+  }
+  if (window.__assetState[fullKey] === "pending") return fullKey;
   var src = window.__svgAssets[key];
   if (!src) return null;
-  scene.textures.addBase64("art." + key, src);
-  return "art." + key;
+  window.__assetState[fullKey] = "pending";
+  try {
+    scene.textures.once("addtexture-" + fullKey, function () {
+      window.__assetState[fullKey] = "ready";
+    });
+    scene.textures.addBase64(fullKey, src);
+  } catch (e) {
+    // Defensive: another concurrent call already registered. Mark ready
+    // and move on rather than letting the error escape.
+    window.__assetState[fullKey] = "ready";
+  }
+  return fullKey;
+};
+// Preload all SVG assets eagerly when a scene starts so that subsequent
+// sprite() calls find them already registered, the first frame paints
+// the real textures instead of the placeholder, and there is no
+// addBase64 race during gameplay. Templates should call
+// \`window.__preloadArtAssets(this)\` from preload() or at the very top
+// of create() before any sprite() call.
+window.__preloadArtAssets = function (scene) {
+  if (!scene || !scene.textures) return;
+  var keys = Object.keys(window.__svgAssets);
+  for (var i = 0; i < keys.length; i++) {
+    window.__ensureAsset(scene, keys[i]);
+  }
 };
 </script>
 <script>
@@ -987,6 +1022,20 @@ window.addEventListener("load", function () {
     if (typeof createGame !== "function") throw new Error("Template contract violation: createGame() is not defined");
     // Stash the instance so the harness can drive renderer.snapshot().
     window.__game = createGame();
+    // Hook into the first scene's boot to preload the SVG library before
+    // any user code runs. This guarantees __ensureAsset never races
+    // even if the Builder forgets to call __preloadArtAssets explicitly.
+    var g = window.__game;
+    if (g && g.scene && g.scene.scenes) {
+      g.events.once("ready", function () {
+        try {
+          for (var i = 0; i < g.scene.scenes.length; i++) {
+            var s = g.scene.scenes[i];
+            if (s && s.textures) window.__preloadArtAssets(s);
+          }
+        } catch (e) { /* eat — assets will fall back to lazy ensure */ }
+      });
+    }
     if (window.__reportReady) window.__reportReady();
   } catch (e) {
     console.error("Boot failure: " + (e && e.message ? e.message : String(e)));
