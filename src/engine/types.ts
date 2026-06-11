@@ -112,6 +112,7 @@ export type StageName =
   | "writer"
   | "reviewer"
   | "fallback-single-shot"
+  | "formula-repair"
   | "game-designer"
   | "game-builder"
   | "game-static-check";

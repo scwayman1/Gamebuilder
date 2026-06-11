@@ -1,7 +1,9 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateObject } from "ai";
+import { z } from "zod";
 import {
   type Blueprint,
+  type BlueprintIssue,
   BlueprintSchema,
   evalFormula,
   isFormulaSafe,
@@ -239,6 +241,8 @@ function duplicates(ids: string[]): string[] {
 function validateMechanicFormulas(mechanic: Mechanic): string[] {
   const ids = new Set(mechanic.variables.map((v) => v.id));
   const problems: string[] = [];
+  const defaults: Record<string, number> = {};
+  for (const v of mechanic.variables) defaults[v.id] = v.default;
   for (const o of mechanic.outcomes) {
     if (!isFormulaSafe(o.formula)) {
       problems.push(
@@ -283,9 +287,193 @@ function validateMechanicFormulas(mechanic: Mechanic): string[] {
       problems.push(
         `${o.id}: formula never produces a finite number across the variable sample grid. Formula was: "${o.formula}"`,
       );
+    } else if (!Number.isFinite(evalFormula(o.formula, defaults))) {
+      // The visualization renders at defaults first — NaN here is what the
+      // student sees. As strict as the downstream UI checks.
+      problems.push(
+        `${o.id}: formula is not finite at the default values ${JSON.stringify(defaults)}. Guard divisions (divide by Math.max(1, x)) and logs (Math.log(1 + x)). Formula was: "${o.formula}"`,
+      );
+    } else if (finite < samples.length) {
+      problems.push(
+        `${o.id}: formula produces NaN/Infinity at ${samples.length - finite}/${samples.length} sample points of the (min, default, max) grid. Add guards so it is finite everywhere. Formula was: "${o.formula}"`,
+      );
     }
   }
   return problems;
+}
+
+// ---- Formula repair (verified-fix, runs on the assembled blueprint) ----
+//
+// Both the multi-stage path and the single-shot fallback can ship formulas
+// that NaN at runtime. This pass detects them deterministically, asks one
+// focused model call for fixes, applies ONLY fixes that verify finite
+// across the whole sample grid, and — as a last resort — substitutes a
+// deterministic placeholder so the student never sees NaN.
+
+function sampleGrid(
+  variables: Blueprint["variables"],
+): Array<Record<string, number>> {
+  const points = variables.map((v) => [v.min, v.default, v.max]);
+  let combos: number[][] = [[]];
+  for (const dim of points) {
+    const next: number[][] = [];
+    for (const c of combos) for (const p of dim) next.push([...c, p]);
+    combos = next;
+    if (combos.length > 27) {
+      combos = combos.slice(0, 27);
+      break;
+    }
+  }
+  return combos.map((c) => {
+    const s: Record<string, number> = {};
+    variables.forEach((v, i) => {
+      s[v.id] = c[i] ?? v.default;
+    });
+    return s;
+  });
+}
+
+export function formulaHealth(
+  formula: string,
+  variables: Blueprint["variables"],
+): { finiteEverywhere: boolean; finiteAtDefaults: boolean } {
+  const defaults: Record<string, number> = {};
+  for (const v of variables) defaults[v.id] = v.default;
+  const grid = sampleGrid(variables);
+  const finite = grid.filter((s) =>
+    Number.isFinite(evalFormula(formula, s)),
+  ).length;
+  return {
+    finiteEverywhere: finite === grid.length,
+    finiteAtDefaults: Number.isFinite(evalFormula(formula, defaults)),
+  };
+}
+
+// Guaranteed-finite stand-in: normalized average of the variables scaled to
+// 0-100, so every slider still visibly moves the outcome.
+export function placeholderFormula(variables: Blueprint["variables"]): string {
+  const usable = variables.filter((v) => v.max > v.min);
+  if (usable.length === 0) return "0";
+  const terms = usable.map(
+    (v) => `((${v.id} - (${v.min})) / ${v.max - v.min})`,
+  );
+  return `Math.round(100 * (${terms.join(" + ")}) / ${usable.length})`;
+}
+
+const FormulaFixSchema = z.object({
+  fixes: z.array(
+    z.object({
+      outcomeId: z.string(),
+      formula: z
+        .string()
+        .describe(
+          "Corrected JS expression using only the variable ids, numbers, Math.*, + - * / and parentheses.",
+        ),
+    }),
+  ),
+});
+
+const FORMULA_FIX_SYSTEM = `You repair broken outcome formulas for an educational simulation. Each formula is a single JS expression over the listed variables.
+
+RULES:
+- Only variable ids, numeric literals, Math.* functions, + - * / and parentheses. No other identifiers.
+- The formula MUST evaluate to a finite number at EVERY combination of each variable's (min, default, max).
+- Guard divisions where a variable can be 0: divide by Math.max(1, x) or (x + 1).
+- Guard logs/sqrt where a value can be <= 0: Math.log(1 + Math.max(0, x)), Math.sqrt(Math.max(0, x)).
+- Preserve the teaching intent: the same variables should still drive the outcome in the same direction; keep magnitudes sensible for the stated unit.
+- Return one fix per broken outcome, nothing else.`;
+
+async function repairFormulas(
+  openai: Provider,
+  blueprint: Blueprint,
+  stages: StageRun[],
+): Promise<{ blueprint: Blueprint; extraIssues: BlueprintIssue[] }> {
+  const broken = blueprint.outcomes.filter(
+    (o) => !formulaHealth(o.formula, blueprint.variables).finiteEverywhere,
+  );
+  if (broken.length === 0) return { blueprint, extraIssues: [] };
+
+  const t0 = Date.now();
+  const fixed = new Map<string, string>();
+  try {
+    const { object } = await generateObject({
+      model: openai(FALLBACK_MODEL),
+      schema: FormulaFixSchema,
+      system: FORMULA_FIX_SYSTEM,
+      prompt: `Variables:
+${blueprint.variables
+  .map(
+    (v) =>
+      `- ${v.id} ("${v.label}"): min ${v.min}, default ${v.default}, max ${v.max}`,
+  )
+  .join("\n")}
+
+Broken outcomes:
+${broken
+  .map(
+    (o) =>
+      `- ${o.id} ("${o.label}", unit "${o.unit}"): current formula "${o.formula}" is not finite across the sample grid.`,
+  )
+  .join("\n")}
+
+Fix each formula.`,
+      temperature: 0.1,
+      maxRetries: 1,
+    });
+    // Verified-fix protocol: only accept a fix that provably evaluates
+    // finite everywhere. A "fix" that fails verification is discarded.
+    const varIds = new Set(blueprint.variables.map((v) => v.id));
+    for (const fix of object.fixes) {
+      if (!broken.some((o) => o.id === fix.outcomeId)) continue;
+      if (!isFormulaSafe(fix.formula)) continue;
+      const idents = fix.formula.match(/[a-zA-Z_][a-zA-Z0-9_]*/g) ?? [];
+      if (idents.some((i) => i !== "Math" && !varIds.has(i))) continue;
+      if (!formulaHealth(fix.formula, blueprint.variables).finiteEverywhere)
+        continue;
+      fixed.set(fix.outcomeId, fix.formula);
+    }
+    stages.push({
+      name: "formula-repair",
+      model: FALLBACK_MODEL,
+      latencyMs: Date.now() - t0,
+      attempt: 1,
+      ok: fixed.size === broken.length,
+      error:
+        fixed.size === broken.length
+          ? undefined
+          : `Verified ${fixed.size}/${broken.length} fix(es); rest fall back to placeholder.`,
+    });
+  } catch (err) {
+    stages.push({
+      name: "formula-repair",
+      model: FALLBACK_MODEL,
+      latencyMs: Date.now() - t0,
+      attempt: 1,
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  const extraIssues: BlueprintIssue[] = [];
+  const outcomes = blueprint.outcomes.map((o) => {
+    const repaired = fixed.get(o.id);
+    if (repaired) return { ...o, formula: repaired };
+    if (!broken.some((b) => b.id === o.id)) return o;
+    // Last resort: if it would NaN at defaults (what the student sees
+    // first), swap in the deterministic placeholder and flag it loudly
+    // for human review. Partial corner-case NaN keeps the original
+    // formula — validateBlueprint will still surface it.
+    if (!formulaHealth(o.formula, blueprint.variables).finiteAtDefaults) {
+      extraIssues.push({
+        path: `outcomes.${o.id}.formula`,
+        problem: `Auto-substituted a placeholder formula (normalized 0-100 index of all variables) because the generated formula "${o.formula}" was not finite at default values. Needs human review.`,
+      });
+      return { ...o, formula: placeholderFormula(blueprint.variables) };
+    }
+    return o;
+  });
+
+  return { blueprint: { ...blueprint, outcomes }, extraIssues };
 }
 
 function runWriter(
@@ -542,8 +730,12 @@ export async function runEngine(
         },
       };
     }
-    const blueprint = parsed.data;
-    const residualIssues = validateBlueprint(blueprint);
+    const { blueprint, extraIssues } = await repairFormulas(
+      openai,
+      parsed.data,
+      stages,
+    );
+    const residualIssues = [...validateBlueprint(blueprint), ...extraIssues];
 
     return {
       ok: true,
@@ -585,10 +777,17 @@ export async function runEngine(
         attempt: 1,
         ok: true,
       });
-      const residualIssues = validateBlueprint(object);
+      // The rescue path is the most likely to ship broken formulas (it's
+      // here because the Mechanic already failed) — gate it the same way.
+      const { blueprint, extraIssues } = await repairFormulas(
+        openai,
+        object,
+        stages,
+      );
+      const residualIssues = [...validateBlueprint(blueprint), ...extraIssues];
       return {
         ok: true,
-        blueprint: object,
+        blueprint,
         meta: {
           totalLatencyMs: Date.now() - t0,
           stages,
