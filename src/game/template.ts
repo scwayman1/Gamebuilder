@@ -261,7 +261,12 @@ export function templateForCompanionType(
     return PHASER_ARCADE_TEMPLATE;
   if (companionType === "Trail Master (experimental)")
     return TRAIL_MASTER_TEMPLATE;
-  if (companionType === "Lab Exhibit (experimental)")
+  // "Simulation Lab" and the explicit "Lab Exhibit" both route to the
+  // exhibit template. The old declarative React Simulation Lab is gone.
+  if (
+    companionType === "Lab Exhibit (experimental)" ||
+    companionType === "Simulation Lab"
+  )
     return LAB_EXHIBIT_TEMPLATE;
   return null;
 }

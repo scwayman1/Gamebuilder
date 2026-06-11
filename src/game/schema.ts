@@ -2,7 +2,12 @@ import { z } from "zod";
 
 // Companion types that route through the code-gen game path instead of the
 // declarative Simulation Lab path. The Designer maps these to template ids.
+// "Simulation Lab" used to flow through the React-rendered generic
+// projectile/bars charts; we redirect it here so the same brief produces
+// a topic-specific Phaser exhibit (player+goal+ball, lever+load, etc.)
+// rather than a flat parabola.
 export const GAME_COMPANION_TYPES = [
+  "Simulation Lab",
   "Arcade Game (experimental)",
   "Flashcard Quest (experimental)",
   "Trail Master (experimental)",

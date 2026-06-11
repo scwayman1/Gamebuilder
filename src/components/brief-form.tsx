@@ -14,7 +14,6 @@ import {
 } from "./run-store";
 
 const companionTypes = [
-  "Lab Exhibit (experimental)",
   "Simulation Lab",
   "Flashcard Quest (experimental)",
   "Trail Master (experimental)",
