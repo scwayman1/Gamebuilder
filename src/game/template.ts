@@ -1049,12 +1049,36 @@ window.addEventListener("load", function () {
             }
           }
         } catch (e) { /* eat — non-fatal */ }
-        // Diagnostic: report canvas + scene state so the parent UI can
-        // tell whether content was actually drawn, even if the player
-        // sees a dark frame on first paint.
+        // Empty-canvas backstop: 800ms after boot, if the first scene
+        // has fewer than 4 GameObjects in its display list, the Builder
+        // failed to draw anything meaningful. Paint a default
+        // atmospheric scene + a polite "Regenerate me" overlay so the
+        // user sees SOMETHING and knows the run needs to be re-rolled.
         setTimeout(function () {
           try {
             var s2 = g.scene.scenes[0];
+            if (!s2 || !s2.children || !s2.children.list) return;
+            var len = s2.children.list.length;
+            if (len < 4) {
+              if (window.__art) {
+                window.__art.background(s2, "dawn", { ground: true });
+                window.__art.mountains(s2, 460);
+                window.__art.sun(s2, 1140, 110, 44);
+                window.__art.cloud(s2, 300, 110, 0.9);
+                window.__art.cloud(s2, 920, 150, 1.0);
+              }
+              s2.add.text(g.scale.width * 0.5, g.scale.height * 0.5 - 18,
+                "This run produced no scene content.", {
+                  fontFamily: "system-ui, sans-serif",
+                  fontSize: "28px", color: "#0f172a", fontStyle: "bold"
+                }).setOrigin(0.5).setDepth(1000);
+              s2.add.text(g.scale.width * 0.5, g.scale.height * 0.5 + 18,
+                "Click Regenerate above to try again.", {
+                  fontFamily: "system-ui, sans-serif",
+                  fontSize: "20px", color: "#1e293b"
+                }).setOrigin(0.5).setDepth(1000);
+            }
+            // Diagnostic for the parent UI.
             var report = {
               width: g.scale.width,
               height: g.scale.height,
@@ -1062,11 +1086,12 @@ window.addEventListener("load", function () {
               canvasH: g.canvas ? g.canvas.height : null,
               displayW: g.canvas ? g.canvas.clientWidth : null,
               displayH: g.canvas ? g.canvas.clientHeight : null,
-              displayListLen: s2 && s2.children && s2.children.list ? s2.children.list.length : null
+              displayListLen: len,
+              builderEmpty: len < 4
             };
             try { parent.postMessage({ __gameHarness: true, type: "diagnostic", payload: report }, "*"); } catch (e) {}
           } catch (e) {}
-        }, 600);
+        }, 800);
       });
     }
       if (window.__reportReady) window.__reportReady();

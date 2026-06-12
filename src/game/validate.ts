@@ -88,5 +88,27 @@ export function validateGameCode(code: GameCode, design: GameDesign): string[] {
     );
   }
 
+  // Visual quality gate: the gameCode MUST use the art library. The
+  // harness ships rich __art helpers and a post-processing layer that
+  // every template's contract requires; a gameCode that ignores them
+  // produces the all-black/empty scenes we've been chasing. Force the
+  // Builder to wire it in. We also require an explicit background —
+  // either via __art.background() or scene.cameras.main.setBackgroundColor —
+  // so the canvas can never silently render as default black.
+  if (!/window\s*\.\s*__art\b|\b__art\./.test(code.gameCode)) {
+    problems.push(
+      "gameCode never references `window.__art` — the contract requires using the art library (backgrounds, sprites, UI, fx). Without it the scene renders empty.",
+    );
+  }
+  if (
+    !/__art\s*\.\s*background\s*\(/.test(code.gameCode) &&
+    !/setBackgroundColor\s*\(/.test(code.gameCode) &&
+    !/backgroundColor\s*:/.test(code.gameCode)
+  ) {
+    problems.push(
+      "gameCode must paint a background — call `__art.background(scene, 'sky'|'dawn'|...)` in create() or set a `backgroundColor` in the Phaser config. Without it the canvas renders default black.",
+    );
+  }
+
   return problems;
 }
