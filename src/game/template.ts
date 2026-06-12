@@ -1031,6 +1031,25 @@ window.addEventListener("load", function () {
       if (typeof createGame !== "function") throw new Error("Template contract violation: createGame() is not defined");
       // Stash the instance so the harness can drive renderer.snapshot().
       window.__game = createGame();
+      // Defensive layout fix: if the Builder forgot \`parent: "game"\`
+      // in the Phaser config, the canvas gets appended to <body> after
+      // the #game div, gets autoCenter margin-top from Phaser, and ends
+      // up positioned BELOW the viewport — looks like a black canvas
+      // even though the scene renders perfectly. Move it into #game and
+      // clear the inline margins so our flex CSS centers it.
+      setTimeout(function () {
+        try {
+          var cv = document.querySelector("canvas");
+          var gameDiv = document.getElementById("game");
+          if (cv && gameDiv && cv.parentElement !== gameDiv) {
+            cv.style.marginTop = "0";
+            cv.style.marginLeft = "0";
+            cv.style.marginRight = "0";
+            cv.style.marginBottom = "0";
+            gameDiv.appendChild(cv);
+          }
+        } catch (e) { /* eat — non-fatal */ }
+      }, 0);
     var g = window.__game;
     if (g && g.scene && g.scene.scenes) {
       g.events.once("ready", function () {

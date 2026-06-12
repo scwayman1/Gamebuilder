@@ -82,6 +82,16 @@ export function validateGameCode(code: GameCode, design: GameDesign): string[] {
       "gameCode must construct `new Phaser.Game({...})` inside createGame().",
     );
   }
+  // Canvas-mount: without `parent: "game"`, Phaser appends the canvas
+  // to <body> after the #game div, and autoCenter margins push it BELOW
+  // the viewport. The boot script has a defensive reparent that catches
+  // this at runtime, but the static check makes the gameCode correct at
+  // the source so the repair stage learns it too.
+  if (!/parent\s*:\s*["']game["']/.test(code.gameCode)) {
+    problems.push(
+      'Phaser config must include `parent: "game"` so the canvas mounts inside the #game div. Without it the canvas ends up off-screen.',
+    );
+  }
   if (!/GAME_CONFIG/.test(code.gameCode)) {
     problems.push(
       "gameCode never reads GAME_CONFIG — gameplay constants must come from the config block.",
