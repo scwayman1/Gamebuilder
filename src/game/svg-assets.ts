@@ -158,26 +158,196 @@ export function cloudSvg(): string {
 }
 
 export function mountainSvg(): string {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+  // Layered atmospheric mountain range — depth haze, multiple ridges,
+  // gradient snow caps, softer silhouettes. Designed to read at large
+  // scale across a parallax backdrop.
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 240">
   <defs>
-    <linearGradient id="mB" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#475569"/>
-      <stop offset="1" stop-color="#1e293b"/>
+    <linearGradient id="mFar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7c8aa0"/>
+      <stop offset="0.6" stop-color="#5a6a85"/>
+      <stop offset="1" stop-color="#3d4d68"/>
     </linearGradient>
-    <linearGradient id="mF" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#64748b"/>
-      <stop offset="1" stop-color="#334155"/>
+    <linearGradient id="mMid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4f5d77"/>
+      <stop offset="0.6" stop-color="#384459"/>
+      <stop offset="1" stop-color="#1f2937"/>
+    </linearGradient>
+    <linearGradient id="mNear" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2e3a4f"/>
+      <stop offset="1" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="mSnow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#cbd5e1"/>
+    </linearGradient>
+    <linearGradient id="mHaze" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
   </defs>
-  <polygon points="0,200 60,80 120,200" fill="url(#mB)"/>
-  <polygon points="60,80 80,108 120,200 60,200" fill="#1e293b" opacity="0.7"/>
-  <polygon points="60,80 48,108 72,108" fill="#ffffff"/>
-  <polygon points="100,200 180,40 260,200" fill="url(#mF)"/>
-  <polygon points="180,40 200,80 260,200 180,200" fill="#1e293b" opacity="0.55"/>
-  <polygon points="180,40 160,82 200,82" fill="#ffffff"/>
-  <polygon points="170,82 180,98 190,82" fill="#e2e8f0"/>
-  <polygon points="220,200 280,120 320,200" fill="url(#mB)" opacity="0.8"/>
-  <polygon points="280,120 296,144 320,200 280,200" fill="#1e293b" opacity="0.5"/>
+
+  <!-- Far layer: muted distant range -->
+  <path d="M0 240 L0 150 L50 110 L90 130 L130 95 L180 120 L230 90 L280 115 L320 100 L370 125 L420 105 L470 130 L510 110 L560 135 L610 115 L640 130 L640 240 Z" fill="url(#mFar)"/>
+  <path d="M0 240 L0 150 L50 110 L90 130 L130 95 L180 120 L230 90 L280 115 L320 100 L370 125 L420 105 L470 130 L510 110 L560 135 L610 115 L640 130 L640 240 Z" fill="url(#mHaze)"/>
+
+  <!-- Mid layer: structured ridges with snow caps -->
+  <path d="M0 240 L0 170 L60 120 L120 160 L180 90 L240 140 L300 70 L360 130 L420 95 L480 145 L540 100 L600 150 L640 130 L640 240 Z" fill="url(#mMid)"/>
+  <!-- Snow caps on prominent mid peaks -->
+  <path d="M178 95 L160 120 L200 120 Z" fill="url(#mSnow)" opacity="0.95"/>
+  <path d="M298 75 L280 100 L320 100 Z" fill="url(#mSnow)" opacity="0.95"/>
+  <path d="M418 100 L400 122 L440 122 Z" fill="url(#mSnow)" opacity="0.9"/>
+  <path d="M538 105 L520 128 L560 128 Z" fill="url(#mSnow)" opacity="0.9"/>
+  <!-- Shaded right faces -->
+  <path d="M180 90 L240 140 L210 140 Z" fill="#0f172a" opacity="0.35"/>
+  <path d="M300 70 L360 130 L325 130 Z" fill="#0f172a" opacity="0.35"/>
+  <path d="M420 95 L480 145 L445 145 Z" fill="#0f172a" opacity="0.3"/>
+
+  <!-- Near layer: tall foreground peaks -->
+  <path d="M0 240 L0 200 L80 140 L160 200 L260 100 L360 200 L450 130 L540 200 L640 160 L640 240 Z" fill="url(#mNear)"/>
+  <path d="M258 105 L228 145 L290 145 Z" fill="url(#mSnow)"/>
+  <path d="M258 105 L290 145 L274 145 Z" fill="#e2e8f0" opacity="0.7"/>
+  <path d="M447 135 L420 168 L478 168 Z" fill="url(#mSnow)"/>
+  <path d="M260 100 L360 200 L320 200 Z" fill="#0f172a" opacity="0.5"/>
+  <path d="M450 130 L540 200 L500 200 Z" fill="#0f172a" opacity="0.5"/>
+
+  <!-- Subtle distant fog band along the mid horizon -->
+  <rect x="0" y="158" width="640" height="22" fill="#ffffff" opacity="0.06"/>
+</svg>`;
+}
+
+export function foregroundSilhouetteSvg(): string {
+  // Foreground silhouette layer: rolling hills + grass tufts + lone
+  // pine. Adds depth and prevents the canvas from feeling flat.
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" preserveAspectRatio="none">
+  <defs>
+    <linearGradient id="fgH" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1e293b"/>
+      <stop offset="1" stop-color="#020617"/>
+    </linearGradient>
+  </defs>
+  <path d="M0 160 L0 80 Q40 50 90 60 Q140 70 200 50 Q280 30 350 60 Q430 90 510 50 Q580 20 640 50 L640 160 Z" fill="url(#fgH)"/>
+  <!-- Lone pine -->
+  <g transform="translate(110 76)">
+    <rect x="-2" y="0" width="4" height="18" fill="#0c0a09"/>
+    <polygon points="0,-30 -16,0 16,0" fill="#0f1c14"/>
+    <polygon points="0,-18 -12,4 12,4" fill="#142d20"/>
+    <polygon points="0,-6 -8,10 8,10" fill="#142d20"/>
+  </g>
+  <!-- Tufts of grass -->
+  <g fill="#0f172a">
+    <path d="M260 100 l3 -10 l3 10 z"/>
+    <path d="M270 102 l3 -8 l3 8 z"/>
+    <path d="M280 98 l3 -12 l3 12 z"/>
+    <path d="M450 90 l3 -10 l3 10 z"/>
+    <path d="M460 92 l3 -8 l3 8 z"/>
+    <path d="M580 95 l3 -10 l3 10 z"/>
+  </g>
+</svg>`;
+}
+
+export function eagleCharacterSvg(): string {
+  // Hand-illustrated bald eagle mascot, designed to fill its viewBox so
+  // it reads big and bold at small scales. White head, brown body, gold
+  // beak and feet, expressive eye with highlight, fierce brow.
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <defs>
+    <radialGradient id="eGlow" cx="50%" cy="50%" r="60%">
+      <stop offset="0" stop-color="#fde68a" stop-opacity="0.6"/>
+      <stop offset="0.5" stop-color="#fbbf24" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#fbbf24" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="eBody" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#78350f"/>
+      <stop offset="1" stop-color="#451a03"/>
+    </linearGradient>
+    <linearGradient id="eBodyHi" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9a4d12" stop-opacity="0.7"/>
+      <stop offset="1" stop-color="#9a4d12" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="eHead" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d8dee9"/>
+    </linearGradient>
+    <linearGradient id="eBeak" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fde047"/>
+      <stop offset="1" stop-color="#b45309"/>
+    </linearGradient>
+  </defs>
+  <!-- Soft halo -->
+  <circle cx="80" cy="82" r="72" fill="url(#eGlow)"/>
+  <!-- Ground shadow -->
+  <ellipse cx="80" cy="150" rx="48" ry="6" fill="#000" opacity="0.4"/>
+  <!-- Body (large, fills viewBox) -->
+  <path d="M28 110 Q18 76 44 56 Q70 42 80 56 Q108 42 132 60 Q146 86 138 116 Q120 142 80 144 Q44 142 28 110 Z" fill="url(#eBody)"/>
+  <!-- Body highlight -->
+  <path d="M34 100 Q30 76 50 64 Q70 56 80 66 Q92 56 108 64 Q66 70 50 90 Q40 100 34 100 Z" fill="url(#eBodyHi)"/>
+  <!-- Wing detail (dark feather curves) -->
+  <path d="M40 100 Q60 116 96 110" stroke="#1c0f02" stroke-width="2" fill="none" opacity="0.6" stroke-linecap="round"/>
+  <path d="M44 122 Q66 134 100 126" stroke="#1c0f02" stroke-width="1.8" fill="none" opacity="0.5" stroke-linecap="round"/>
+  <path d="M48 80 Q70 92 92 84" stroke="#1c0f02" stroke-width="1.6" fill="none" opacity="0.45" stroke-linecap="round"/>
+  <!-- White head -->
+  <path d="M32 68 Q30 30 70 22 Q116 18 132 44 Q138 70 116 82 Q80 88 56 84 Q40 82 32 68 Z" fill="url(#eHead)"/>
+  <!-- Head shading -->
+  <path d="M48 70 Q60 80 100 80 Q116 78 128 70" stroke="#94a3b8" stroke-width="1.4" fill="none" opacity="0.45"/>
+  <!-- Beak -->
+  <path d="M114 54 Q146 56 150 70 Q146 76 126 72 Q118 66 114 54 Z" fill="url(#eBeak)"/>
+  <path d="M124 64 Q142 64 142 70 Q124 70 124 64 Z" fill="#7c2d12"/>
+  <!-- Beak highlight -->
+  <path d="M118 56 Q126 58 130 62" stroke="#fef3c7" stroke-width="1.2" fill="none" opacity="0.7"/>
+  <!-- Eye -->
+  <circle cx="100" cy="50" r="7" fill="#fef3c7"/>
+  <circle cx="102" cy="50" r="5" fill="#0f172a"/>
+  <circle cx="103" cy="48" r="1.6" fill="#ffffff"/>
+  <!-- Fierce brow -->
+  <path d="M84 40 Q102 30 118 42" stroke="#1e293b" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <!-- Talons -->
+  <path d="M58 142 L56 156 M70 144 L70 156 M88 144 L88 156 M100 142 L102 156" stroke="#fbbf24" stroke-width="2.4" stroke-linecap="round"/>
+</svg>`;
+}
+
+export function foxCharacterSvg(): string {
+  // Friendlier alternate mascot: cartoon fox. Use for non-eagle themes.
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
+  <defs>
+    <radialGradient id="fxGlow" cx="50%" cy="50%" r="60%">
+      <stop offset="0" stop-color="#fed7aa" stop-opacity="0.6"/>
+      <stop offset="0.5" stop-color="#fdba74" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#fb923c" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="fxBody" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fb923c"/>
+      <stop offset="1" stop-color="#c2410c"/>
+    </linearGradient>
+  </defs>
+  <circle cx="90" cy="92" r="78" fill="url(#fxGlow)"/>
+  <ellipse cx="90" cy="166" rx="40" ry="5" fill="#000" opacity="0.3"/>
+  <!-- Tail -->
+  <path d="M140 110 Q170 100 162 78 Q150 90 150 110 Z" fill="url(#fxBody)"/>
+  <ellipse cx="160" cy="82" rx="6" ry="8" fill="#ffffff"/>
+  <!-- Body -->
+  <ellipse cx="90" cy="120" rx="42" ry="36" fill="url(#fxBody)"/>
+  <ellipse cx="90" cy="132" rx="28" ry="20" fill="#fef3c7"/>
+  <!-- Head -->
+  <path d="M50 88 Q56 60 90 56 Q124 60 130 88 Q124 110 90 112 Q56 110 50 88 Z" fill="url(#fxBody)"/>
+  <!-- Ears -->
+  <path d="M58 70 Q52 40 66 48 Q72 60 70 76 Z" fill="url(#fxBody)"/>
+  <path d="M62 60 Q60 50 68 52 Q70 62 68 70 Z" fill="#1c1917"/>
+  <path d="M122 70 Q128 40 114 48 Q108 60 110 76 Z" fill="url(#fxBody)"/>
+  <path d="M118 60 Q120 50 112 52 Q110 62 112 70 Z" fill="#1c1917"/>
+  <!-- Face -->
+  <path d="M68 90 Q72 100 78 96 Z" fill="#0f172a"/>
+  <circle cx="72" cy="86" r="4" fill="#0f172a"/>
+  <circle cx="73" cy="84" r="1.5" fill="#ffffff"/>
+  <circle cx="108" cy="86" r="4" fill="#0f172a"/>
+  <circle cx="109" cy="84" r="1.5" fill="#ffffff"/>
+  <!-- Snout -->
+  <path d="M82 98 Q90 108 98 98 Q98 104 90 106 Q82 104 82 98 Z" fill="#fef3c7"/>
+  <ellipse cx="90" cy="100" rx="3" ry="2" fill="#1c1917"/>
+  <!-- Smile -->
+  <path d="M84 106 Q90 112 96 106" stroke="#1c1917" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+  <!-- White muzzle tip + tail tip -->
+  <path d="M84 100 Q90 110 96 100" stroke="#fef3c7" stroke-width="0" fill="none"/>
 </svg>`;
 }
 
@@ -424,5 +594,8 @@ export function svgAssetLibrary(): Record<string, string> {
     tree: svgToDataUri(treeSvg()),
     vignette: svgToDataUri(vignetteSvg()),
     bloom_overlay: svgToDataUri(bloomOverlaySvg()),
+    foreground: svgToDataUri(foregroundSilhouetteSvg()),
+    char_eagle: svgToDataUri(eagleCharacterSvg()),
+    char_fox: svgToDataUri(foxCharacterSvg()),
   };
 }

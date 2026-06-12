@@ -43,6 +43,22 @@ const stages = [
   { id: "publish", label: "Publish", icon: Rocket },
 ] as const;
 
+function templateLabel(companionType: string): string {
+  switch (companionType) {
+    case "Flashcard Quest (experimental)":
+      return "Flashcard Quest";
+    case "Trail Master (experimental)":
+      return "Trail Master";
+    case "Arcade Game (experimental)":
+      return "Arcade Game";
+    case "Lab Exhibit (experimental)":
+    case "Simulation Lab":
+      return "Simulation Lab";
+    default:
+      return companionType;
+  }
+}
+
 type StageId = (typeof stages)[number]["id"];
 
 type RunMode = "loading" | "blueprint" | "game";
@@ -141,8 +157,8 @@ export default function RunPage() {
               {brief.topic || "Game run"}
             </h1>
             <p className="text-muted-foreground text-sm">
-              Run <code className="text-xs">{runId}</code> · {brief.gradeBand} ·
-              code-gen arcade game
+              Run <code className="text-xs">{runId}</code> · {brief.gradeBand} ·{" "}
+              {templateLabel(brief.companionType)}
             </p>
           </div>
           <GameRun runId={runId} brief={brief} />

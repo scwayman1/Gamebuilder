@@ -492,26 +492,34 @@ window.__preloadArtAssets = function (scene) {
     return sprite(scene, "cloud", x, y, { scale: scale || 1 });
   }
 
-  // ---- mountain range: parallax of layered detailed SVG mountains ----
+  // ---- mountain range: full-bleed atmospheric layered SVG ----
   function mountains(scene, baseY, opts) {
     opts = opts || {};
     var c = scene.add.container(0, 0);
     var w = scene.scale.width;
-    // Back layer (muted, distant)
-    var back = sprite(scene, "mountain", w * 0.5, baseY, {
-      originY: 1, width: w * 1.1, alpha: 0.65, tint: 0x64748b
+    var mtn = sprite(scene, "mountain", w * 0.5, baseY, {
+      originY: 1, width: w, height: w * 0.375
     });
-    c.add(back);
-    // Front layer (vivid, closer)
-    var frontL = sprite(scene, "mountain", w * 0.3, baseY + 10, {
-      originY: 1, width: w * 0.7
-    });
-    c.add(frontL);
-    var frontR = sprite(scene, "mountain", w * 0.75, baseY + 14, {
-      originY: 1, width: w * 0.65
-    });
-    c.add(frontR);
+    if (mtn) mtn.setDepth(-700);
+    c.add(mtn);
     return c;
+  }
+
+  // ---- foreground silhouette strip (depth + texture) ----
+  function foreground(scene, baseY) {
+    var w = scene.scale.width, h = scene.scale.height;
+    var stripeH = Math.max(120, (h - (baseY || h * 0.78)) * 1.2);
+    var fg = sprite(scene, "foreground", w * 0.5, h, {
+      originY: 1, width: w, height: stripeH
+    });
+    if (fg) fg.setDepth(-200);
+    return fg;
+  }
+
+  // ---- illustrated character (vastly richer than emoji) ----
+  function characterMascot(scene, x, y, kind, scale) {
+    var key = kind === "fox" ? "char_fox" : "char_eagle";
+    return sprite(scene, key, x, y, { scale: scale || 1 });
   }
 
   // ---- tree sprite (detailed leaf clusters + shading) ----
@@ -652,32 +660,90 @@ window.__preloadArtAssets = function (scene) {
   function uiButton(scene, x, y, w, h, label, opts) {
     opts = opts || {};
     var c = scene.add.container(x, y);
-    var shadow = scene.add.graphics();
-    shadow.fillStyle(0x000000, 0.3);
-    shadow.fillRoundedRect(-w * 0.5 + 2, -h * 0.5 + 4, w, h, 10);
-    c.add(shadow);
-    var bg = scene.add.graphics();
     var c1 = opts.color1 || 0x6366f1, c2 = opts.color2 || 0x4338ca;
-    bg.fillGradientStyle(c1, c1, c2, c2, 1, 1, 1, 1);
-    bg.fillRoundedRect(-w * 0.5, -h * 0.5, w, h, 10);
+    var hoverC1 = opts.hoverColor1 || 0x818cf8;
+    var hoverC2 = opts.hoverColor2 || 0x6366f1;
+    // Drop shadow.
+    var shadow = scene.add.graphics();
+    shadow.fillStyle(0x000000, 0.4);
+    shadow.fillRoundedRect(-w * 0.5 + 3, -h * 0.5 + 6, w, h, 14);
+    c.add(shadow);
+    // Soft outer glow (used on hover).
+    var glow = scene.add.graphics();
+    glow.fillStyle(hoverC1, 0);
+    glow.fillRoundedRect(-w * 0.5 - 8, -h * 0.5 - 8, w + 16, h + 16, 18);
+    c.add(glow);
+    // Main body — redrawable for hover state.
+    var bg = scene.add.graphics();
+    function paintBody(top, bot) {
+      bg.clear();
+      bg.fillGradientStyle(top, top, bot, bot, 1, 1, 1, 1);
+      bg.fillRoundedRect(-w * 0.5, -h * 0.5, w, h, 14);
+    }
+    paintBody(c1, c2);
     c.add(bg);
+    // Glass highlight.
     var hi = scene.add.graphics();
-    hi.fillStyle(0xffffff, 0.18);
-    hi.fillRoundedRect(-w * 0.5 + 2, -h * 0.5 + 2, w - 4, h * 0.45, 8);
+    hi.fillStyle(0xffffff, 0.22);
+    hi.fillRoundedRect(-w * 0.5 + 3, -h * 0.5 + 3, w - 6, h * 0.42, 12);
     c.add(hi);
-    var txt = scene.add.text(0, 0, label, {
-      fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif',
-      fontSize: Math.round(h * 0.42) + 'px',
+    // Inner border.
+    var border = scene.add.graphics();
+    border.lineStyle(2, 0xffffff, 0.25);
+    border.strokeRoundedRect(-w * 0.5 + 1, -h * 0.5 + 1, w - 2, h - 2, 13);
+    c.add(border);
+    // Number chip (keyboard hint).
+    if (opts.numberChip) {
+      var chipR = Math.round(h * 0.22);
+      var cx = -w * 0.5 + chipR + 10;
+      var chipBg = scene.add.circle(cx, 0, chipR, 0xffffff, 0.92);
+      var chipText = scene.add.text(cx, 0, String(opts.numberChip), {
+        fontFamily: "system-ui, sans-serif",
+        fontSize: Math.round(chipR * 1.2) + "px",
+        color: "#1e3a8a",
+        fontStyle: "bold",
+      }).setOrigin(0.5);
+      c.add(chipBg);
+      c.add(chipText);
+    }
+    // Label.
+    var txt = scene.add.text(opts.numberChip ? 18 : 0, 0, String(label), {
+      fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+      fontSize: Math.round(h * 0.36) + 'px',
       color: '#ffffff',
-      fontStyle: 'bold'
+      fontStyle: 'bold',
+      align: 'center',
+      wordWrap: { width: w - (opts.numberChip ? Math.round(h * 0.5) + 30 : 30) },
     }).setOrigin(0.5, 0.5);
     c.add(txt);
     c.setSize(w, h);
-    c.setInteractive(new Phaser.Geom.Rectangle(-w * 0.5, -h * 0.5, w, h), Phaser.Geom.Rectangle.Contains);
-    c.on('pointerover', function () { c.setScale(1.04); });
-    c.on('pointerout', function () { c.setScale(1.0); });
-    c.on('pointerdown', function () { c.setScale(0.96); });
-    c.on('pointerup', function () { c.setScale(1.04); });
+    // GENEROUS hit area — pad 14px outward so fingertips land.
+    var pad = 14;
+    c.setInteractive(
+      new Phaser.Geom.Rectangle(-w * 0.5 - pad, -h * 0.5 - pad, w + pad * 2, h + pad * 2),
+      Phaser.Geom.Rectangle.Contains,
+    );
+    scene.input.setDefaultCursor('default');
+    c.on('pointerover', function () {
+      paintBody(hoverC1, hoverC2);
+      glow.clear();
+      glow.fillStyle(hoverC1, 0.35);
+      glow.fillRoundedRect(-w * 0.5 - 8, -h * 0.5 - 8, w + 16, h + 16, 18);
+      scene.tweens.add({ targets: c, scale: 1.04, duration: 120, ease: 'Cubic.easeOut' });
+      scene.input.manager.canvas && (scene.input.manager.canvas.style.cursor = 'pointer');
+    });
+    c.on('pointerout', function () {
+      paintBody(c1, c2);
+      glow.clear();
+      scene.tweens.add({ targets: c, scale: 1.0, duration: 140, ease: 'Cubic.easeOut' });
+      scene.input.manager.canvas && (scene.input.manager.canvas.style.cursor = 'default');
+    });
+    c.on('pointerdown', function () {
+      scene.tweens.add({ targets: c, scale: 0.96, duration: 80 });
+    });
+    c.on('pointerup', function () {
+      scene.tweens.add({ targets: c, scale: 1.04, duration: 100 });
+    });
     return c;
   }
 
@@ -875,6 +941,8 @@ window.__preloadArtAssets = function (scene) {
     soccerGoal: soccerGoal,
     soccerBall: soccerBall,
     character: character,
+    characterMascot: characterMascot,
+    foreground: foreground,
     lever: lever,
     rocket: rocket,
     beaker: beaker,
@@ -918,32 +986,92 @@ window.__preloadArtAssets = function (scene) {
     var pointsPerCorrect = config.pointsPerCorrectAnswer || 10;
 
     var state = { phase: "title", index: 0, streak: 0, score: 0, record: 0 };
-    var layer = scene.add.container(0, 0).setDepth(10);
 
-    // Atmospheric backdrop. Choose palette to taste based on theme name.
+    // ---- Atmospheric backdrop ----
     var bgKind = /space|night|cosmos/i.test(theme.name) ? "space"
               : /jungle|forest|reef|underwater/i.test(theme.name) ? "underwater"
               : /sunset/i.test(theme.name) ? "sunset"
               : "dawn";
     window.__art.background(scene, bgKind, { stars: bgKind === "space" });
+    var W = scene.scale.width, H = scene.scale.height;
+    // Distant atmospheric mountains.
     window.__art.mountains(scene, 540);
+    // Mid-distance fog band — softens the join between mountains and ground.
+    var midFog = scene.add.graphics().setDepth(-450);
+    midFog.fillGradientStyle(0xffffff, 0xffffff, 0xffffff, 0xffffff, 0.15, 0.15, 0, 0);
+    midFog.fillRect(0, 420, W, 160);
+    // Drifting cloud layer for depth.
+    var drift1 = window.__art.cloud(scene, -180, 110, 0.85).setDepth(-500).setAlpha(0.7);
+    var drift2 = window.__art.cloud(scene, 400, 60, 1.1).setDepth(-500).setAlpha(0.55);
+    var drift3 = window.__art.cloud(scene, 1100, 150, 0.95).setDepth(-500).setAlpha(0.6);
+    [drift1, drift2, drift3].forEach(function (cl, i) {
+      scene.tweens.add({
+        targets: cl, x: W + 220, duration: 60000 + i * 18000,
+        repeat: -1, onRepeat: function () { cl.x = -240; }
+      });
+    });
+    // Foreground silhouette layer adds depth & color contrast.
+    window.__art.foreground(scene, 560);
+    // Warm haze across the ground line.
+    var haze = scene.add.graphics().setDepth(-300);
+    haze.fillGradientStyle(0xfbbf24, 0xfbbf24, 0xfbbf24, 0xfbbf24, 0, 0, 0.15, 0.22);
+    haze.fillRect(0, H * 0.58, W, H * 0.42);
+
     window.__art.titleBar(scene);
 
-    // Mascot
-    var mascot = scene.add.text(60, 88, theme.mascotEmoji || "✨", {
-      fontFamily: "system-ui", fontSize: "72px"
-    }).setOrigin(0.5).setDepth(50);
-    scene.tweens.add({ targets: mascot, y: 84, duration: 1200, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+    // ---- Illustrated mascot character. Falls back to emoji if the
+    // theme picked something we don't have a custom illustration for. ----
+    var mascotEmoji = theme.mascotEmoji || "✨";
+    var useEagle = /🦅|eagle|hawk|falcon/i.test(mascotEmoji);
+    var useFox = /🦊|fox/i.test(mascotEmoji);
+    var mascot;
+    var mascotIsSprite = useEagle || useFox;
+    if (mascotIsSprite) {
+      mascot = window.__art.characterMascot(scene, 150, 170, useFox ? "fox" : "eagle", 2.0);
+      mascot.setDepth(50);
+    } else {
+      mascot = scene.add.text(150, 170, mascotEmoji, {
+        fontFamily: "system-ui", fontSize: "144px"
+      }).setOrigin(0.5).setDepth(50);
+    }
+    var mascotShadow = scene.add.ellipse(150, 290, 160, 26, 0x000000, 0.4).setDepth(49);
+    // Breathing.
+    scene.tweens.add({
+      targets: mascot, scale: { from: 1, to: 1.06 },
+      duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut"
+    });
+    // Y bob.
+    scene.tweens.add({
+      targets: mascot, y: { from: 170, to: 158 },
+      duration: 1800, yoyo: true, repeat: -1, ease: "Sine.easeInOut"
+    });
+    // Shadow follows.
+    scene.tweens.add({
+      targets: mascotShadow, scaleX: { from: 1, to: 0.85 }, alpha: { from: 0.35, to: 0.25 },
+      duration: 1800, yoyo: true, repeat: -1, ease: "Sine.easeInOut"
+    });
 
-    // HUD: score, streak, cards
-    var hudScore = scene.add.text(120, 28, "Score 0", { fontFamily: "system-ui", fontSize: "18px", color: "#ffffff", fontStyle: "bold" }).setDepth(902);
-    var hudStreak = scene.add.text(640, 28, "🔥 0", { fontFamily: "system-ui", fontSize: "18px", color: "#ffffff", fontStyle: "bold" }).setOrigin(0.5, 0).setDepth(902);
-    var hudCards = scene.add.text(1160, 28, "0 / " + targetCards, { fontFamily: "system-ui", fontSize: "18px", color: "#ffffff", fontStyle: "bold" }).setOrigin(1, 0).setDepth(902);
+    // ---- HUD: glass pills with icons ----
+    function hudPill(x, originX, label) {
+      var pill = scene.add.graphics().setDepth(901);
+      pill.fillStyle(0x000000, 0.55);
+      pill.fillRoundedRect(x - 88 * originX, 14, 176, 36, 18);
+      pill.lineStyle(1, 0xffffff, 0.25);
+      pill.strokeRoundedRect(x - 88 * originX, 14, 176, 36, 18);
+      var t = scene.add.text(x, 32, label, {
+        fontFamily: "system-ui, sans-serif", fontSize: "18px",
+        color: "#ffffff", fontStyle: "bold"
+      }).setOrigin(originX, 0.5).setDepth(902);
+      return t;
+    }
+    var hudScore = hudPill(260, 1, "✦  Score 0");
+    var hudStreak = hudPill(640, 0.5, "🔥  0");
+    var hudCards = hudPill(1140, 0, "📚  0 / " + targetCards);
 
     function refreshHud() {
-      hudScore.setText("Score " + state.score);
-      hudStreak.setText("🔥 " + state.streak);
-      hudCards.setText(Math.min(state.index, targetCards) + " / " + targetCards);
+      hudScore.setText("✦  Score " + state.score);
+      hudStreak.setText("🔥  " + state.streak);
+      hudCards.setText("📚  " + Math.min(state.index, targetCards) + " / " + targetCards);
     }
 
     // Title card
@@ -967,21 +1095,52 @@ window.__preloadArtAssets = function (scene) {
       var card = deck[state.index];
       if (!card || state.index >= targetCards) return endQuest();
       state.phase = "playing";
-      cardCard = window.__art.ui.card(scene, 640, 220, 1080, 260, { fill: 0x0f172a, alpha: 0.78, border: true, borderColor: 0xffffff });
+      cardCard = window.__art.ui.card(scene, 640, 240, 1080, 220, { fill: 0x0f172a, alpha: 0.82, border: true, borderColor: 0xffffff });
       cardCard.setDepth(100);
-      promptText = scene.add.text(640, 220, card.prompt, {
-        fontFamily: "system-ui", fontSize: "32px", color: "#ffffff", align: "center",
-        wordWrap: { width: 1000 }
-      }).setOrigin(0.5).setDepth(101);
+      cardCard.setAlpha(0).setScale(0.92);
+      scene.tweens.add({ targets: cardCard, alpha: 1, scale: 1, duration: 320, ease: "Back.easeOut" });
+
+      promptText = scene.add.text(640, 240, card.prompt, {
+        fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+        fontSize: "30px", color: "#ffffff", align: "center", fontStyle: "bold",
+        wordWrap: { width: 980 }
+      }).setOrigin(0.5).setDepth(101).setAlpha(0);
+      scene.tweens.add({ targets: promptText, alpha: 1, duration: 320, delay: 120, ease: "Cubic.easeOut" });
 
       var choices = Phaser.Utils.Array.Shuffle([card.correct].concat(card.distractors || []));
-      var cols = 2, btnW = 480, btnH = 88;
+      var palettes = [
+        { c1: 0x6366f1, c2: 0x4338ca, h1: 0x818cf8, h2: 0x6366f1 },
+        { c1: 0xec4899, c2: 0xbe185d, h1: 0xf472b6, h2: 0xec4899 },
+        { c1: 0x10b981, c2: 0x047857, h1: 0x34d399, h2: 0x10b981 },
+        { c1: 0xf59e0b, c2: 0xb45309, h1: 0xfbbf24, h2: 0xf59e0b },
+      ];
+      // Layout: 1 button centered, 2 side-by-side, 3 in a single
+      // centered row, 4 in a 2x2 grid. Buttons stay clear of the
+      // mascot region on the left.
+      var btnW = 500, btnH = 96;
+      var positions;
+      if (choices.length === 1) positions = [{ x: 640, y: 520 }];
+      else if (choices.length === 2) positions = [{ x: 380, y: 520 }, { x: 900, y: 520 }];
+      else if (choices.length === 3) {
+        btnW = 380;
+        positions = [{ x: 320, y: 520 }, { x: 720, y: 520 }, { x: 1120, y: 520 }];
+      }
+      else positions = [
+        { x: 380, y: 470 }, { x: 900, y: 470 },
+        { x: 380, y: 590 }, { x: 900, y: 590 },
+      ];
+      // Briefly shrink the mascot so it doesn't crowd the first button.
+      scene.tweens.add({ targets: mascot, scale: 0.7, duration: 280, ease: "Cubic.easeOut" });
       choices.forEach(function (text, i) {
-        var col = i % cols, row = Math.floor(i / cols);
-        var bx = 380 + col * 520;
-        var by = 460 + row * 110;
-        var btn = window.__art.ui.button(scene, bx, by, btnW, btnH, String(text), { color1: 0x6366f1, color2: 0x4338ca });
+        var p = positions[i];
+        var pal = palettes[i % palettes.length];
+        var btn = window.__art.ui.button(scene, p.x, p.y, btnW, btnH, String(text), {
+          color1: pal.c1, color2: pal.c2, hoverColor1: pal.h1, hoverColor2: pal.h2,
+          numberChip: i + 1,
+        });
         btn.setDepth(101);
+        btn.setAlpha(0).setY(p.y + 30);
+        scene.tweens.add({ targets: btn, alpha: 1, y: p.y, duration: 320, delay: 200 + i * 80, ease: "Back.easeOut" });
         btn.on("pointerup", function () { onAnswer(text === card.correct, card, btn); });
         choiceObjs.push(btn);
       });
@@ -1038,20 +1197,47 @@ window.__preloadArtAssets = function (scene) {
       cardCard = promptText = explanationText = null; choiceObjs = [];
       state.index++;
       refreshHud();
+      // Restore mascot to full size between cards.
+      scene.tweens.add({ targets: mascot, scale: 1.0, duration: 220, ease: "Cubic.easeOut" });
       if (state.index >= targetCards || state.index >= deck.length) return endQuest();
       showCurrentCard();
     }
 
+    function confettiShower() {
+      var colors = [0xfbbf24, 0xec4899, 0x10b981, 0x6366f1, 0xf472b6, 0xfde047];
+      var w = scene.scale.width;
+      for (var i = 0; i < 90; i++) {
+        var c = colors[i % colors.length];
+        var startX = Math.random() * w;
+        var piece = scene.add.rectangle(startX, -20, 8, 14, c).setDepth(960);
+        piece.setRotation(Math.random() * Math.PI);
+        var driftX = (Math.random() - 0.5) * 200;
+        scene.tweens.add({
+          targets: piece,
+          y: scene.scale.height + 40,
+          x: startX + driftX,
+          rotation: piece.rotation + Math.PI * (2 + Math.random() * 3),
+          duration: 2200 + Math.random() * 1400,
+          delay: Math.random() * 600,
+          ease: "Cubic.easeIn",
+          onComplete: function () { this.targets[0].destroy(); },
+        });
+      }
+    }
     function endQuest() {
       state.phase = "end";
       window.__audio.chime();
-      var card = window.__art.ui.card(scene, 640, 360, 720, 320, { fill: 0x0f172a, alpha: 0.85, border: true, borderColor: 0xffffff });
-      card.setDepth(100);
-      scene.add.text(640, 280, "QUEST COMPLETE!", { fontFamily: "system-ui", fontSize: "44px", color: "#fbbf24", fontStyle: "bold" }).setOrigin(0.5).setDepth(101);
-      scene.add.text(640, 360, "Final score: " + state.score, { fontFamily: "system-ui", fontSize: "28px", color: "#ffffff" }).setOrigin(0.5).setDepth(101);
-      scene.add.text(640, 410, "Best streak: " + state.record, { fontFamily: "system-ui", fontSize: "22px", color: "#cbd5e1" }).setOrigin(0.5).setDepth(101);
-      var again = scene.add.text(640, 470, "TAP or SPACE to play again", { fontFamily: "system-ui", fontSize: "20px", color: "#cbd5e1" }).setOrigin(0.5).setDepth(101);
-      scene.tweens.add({ targets: again, alpha: { from: 1, to: 0.5 }, duration: 700, yoyo: true, repeat: -1 });
+      confettiShower();
+      var card = window.__art.ui.card(scene, 640, 360, 760, 340, { fill: 0x0f172a, alpha: 0.92, border: true, borderColor: 0xfbbf24 });
+      card.setDepth(100).setScale(0.85).setAlpha(0);
+      scene.tweens.add({ targets: card, scale: 1, alpha: 1, duration: 400, ease: "Back.easeOut" });
+      scene.add.text(640, 260, "QUEST COMPLETE!", { fontFamily: 'system-ui, sans-serif', fontSize: "52px", color: "#fbbf24", fontStyle: "bold" }).setOrigin(0.5).setDepth(101);
+      scene.add.text(640, 340, "Final score: " + state.score, { fontFamily: "system-ui", fontSize: "30px", color: "#ffffff", fontStyle: "bold" }).setOrigin(0.5).setDepth(101);
+      scene.add.text(640, 390, "Best streak: " + state.record + " 🔥", { fontFamily: "system-ui", fontSize: "22px", color: "#cbd5e1" }).setOrigin(0.5).setDepth(101);
+      var again = scene.add.text(640, 460, "TAP or SPACE to play again", { fontFamily: "system-ui", fontSize: "20px", color: "#cbd5e1" }).setOrigin(0.5).setDepth(101);
+      scene.tweens.add({ targets: again, alpha: { from: 1, to: 0.4 }, duration: 700, yoyo: true, repeat: -1 });
+      // Mascot celebrates.
+      scene.tweens.add({ targets: mascot, scale: { from: 1.06, to: 1.4 }, yoyo: true, duration: 300, repeat: 3 });
       scene.input.keyboard.once("keydown-SPACE", function () { scene.scene.restart(); });
       scene.input.once("pointerdown", function () { scene.scene.restart(); });
     }
