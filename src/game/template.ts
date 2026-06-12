@@ -900,6 +900,210 @@ window.__preloadArtAssets = function (scene) {
 })();
 </script>
 <script>
+// __SKELETONS__ (frozen — full game implementations the harness owns.
+// The LLM Designer produces a config object; this code does the rest.
+// No Builder stage required; nothing for the LLM to break.)
+(function () {
+  // ---- Flashcard Quest skeleton ----
+  // Config shape (everything the Designer produces):
+  //   { deck: [{prompt, correct, distractors[], explanation?}, ...],
+  //     theme: {name, background, accent, mascotEmoji},
+  //     targetCards: number, streakBonusEvery: number,
+  //     pointsPerCorrectAnswer: number }
+  function flashcardQuest(scene, config) {
+    var deck = Phaser.Utils.Array.Shuffle(config.deck.slice());
+    var theme = config.theme || { name: "default", background: "#1e1b4b", accent: "#facc15", mascotEmoji: "🦊" };
+    var targetCards = config.targetCards || Math.min(10, deck.length);
+    var streakBonusEvery = config.streakBonusEvery || 5;
+    var pointsPerCorrect = config.pointsPerCorrectAnswer || 10;
+
+    var state = { phase: "title", index: 0, streak: 0, score: 0, record: 0 };
+    var layer = scene.add.container(0, 0).setDepth(10);
+
+    // Atmospheric backdrop. Choose palette to taste based on theme name.
+    var bgKind = /space|night|cosmos/i.test(theme.name) ? "space"
+              : /jungle|forest|reef|underwater/i.test(theme.name) ? "underwater"
+              : /sunset/i.test(theme.name) ? "sunset"
+              : "dawn";
+    window.__art.background(scene, bgKind, { stars: bgKind === "space" });
+    window.__art.mountains(scene, 540);
+    window.__art.titleBar(scene);
+
+    // Mascot
+    var mascot = scene.add.text(60, 88, theme.mascotEmoji || "✨", {
+      fontFamily: "system-ui", fontSize: "72px"
+    }).setOrigin(0.5).setDepth(50);
+    scene.tweens.add({ targets: mascot, y: 84, duration: 1200, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+
+    // HUD: score, streak, cards
+    var hudScore = scene.add.text(120, 28, "Score 0", { fontFamily: "system-ui", fontSize: "18px", color: "#ffffff", fontStyle: "bold" }).setDepth(902);
+    var hudStreak = scene.add.text(640, 28, "🔥 0", { fontFamily: "system-ui", fontSize: "18px", color: "#ffffff", fontStyle: "bold" }).setOrigin(0.5, 0).setDepth(902);
+    var hudCards = scene.add.text(1160, 28, "0 / " + targetCards, { fontFamily: "system-ui", fontSize: "18px", color: "#ffffff", fontStyle: "bold" }).setOrigin(1, 0).setDepth(902);
+
+    function refreshHud() {
+      hudScore.setText("Score " + state.score);
+      hudStreak.setText("🔥 " + state.streak);
+      hudCards.setText(Math.min(state.index, targetCards) + " / " + targetCards);
+    }
+
+    // Title card
+    var titleCard, titleA, titleB;
+    function showTitle() {
+      state.phase = "title";
+      titleCard = window.__art.ui.card(scene, 640, 360, 760, 280, { fill: 0x0f172a, alpha: 0.7, border: true, borderColor: 0xffffff });
+      titleCard.setDepth(100);
+      titleA = scene.add.text(640, 320, "Quest: " + (theme.name || "Learning"), { fontFamily: "system-ui", fontSize: "40px", color: "#ffffff", fontStyle: "bold" }).setOrigin(0.5).setDepth(101);
+      titleB = scene.add.text(640, 380, "TAP or SPACE to start", { fontFamily: "system-ui", fontSize: "22px", color: "#cbd5e1" }).setOrigin(0.5).setDepth(101);
+      scene.tweens.add({ targets: titleB, alpha: { from: 1, to: 0.5 }, duration: 700, yoyo: true, repeat: -1 });
+    }
+
+    function dismissTitle() {
+      [titleCard, titleA, titleB].forEach(function (o) { if (o) o.destroy(); });
+    }
+
+    // Card runtime
+    var cardCard, promptText, choiceObjs = [], explanationText;
+    function showCurrentCard() {
+      var card = deck[state.index];
+      if (!card || state.index >= targetCards) return endQuest();
+      state.phase = "playing";
+      cardCard = window.__art.ui.card(scene, 640, 220, 1080, 260, { fill: 0x0f172a, alpha: 0.78, border: true, borderColor: 0xffffff });
+      cardCard.setDepth(100);
+      promptText = scene.add.text(640, 220, card.prompt, {
+        fontFamily: "system-ui", fontSize: "32px", color: "#ffffff", align: "center",
+        wordWrap: { width: 1000 }
+      }).setOrigin(0.5).setDepth(101);
+
+      var choices = Phaser.Utils.Array.Shuffle([card.correct].concat(card.distractors || []));
+      var cols = 2, btnW = 480, btnH = 88;
+      choices.forEach(function (text, i) {
+        var col = i % cols, row = Math.floor(i / cols);
+        var bx = 380 + col * 520;
+        var by = 460 + row * 110;
+        var btn = window.__art.ui.button(scene, bx, by, btnW, btnH, String(text), { color1: 0x6366f1, color2: 0x4338ca });
+        btn.setDepth(101);
+        btn.on("pointerup", function () { onAnswer(text === card.correct, card, btn); });
+        choiceObjs.push(btn);
+      });
+
+      // Digit-key support
+      var keyHandler = function (e) {
+        var k = parseInt(e.key, 10);
+        if (k >= 1 && k <= choices.length) {
+          var btn = choiceObjs[k - 1];
+          if (btn) onAnswer(choices[k - 1] === card.correct, card, btn);
+        }
+      };
+      scene.input.keyboard.on("keydown", keyHandler);
+      cardCard._keyHandler = keyHandler;
+    }
+
+    function onAnswer(correct, card, btn) {
+      if (state.phase !== "playing") return;
+      state.phase = "reveal";
+      if (correct) {
+        window.__audio.ding();
+        state.streak++;
+        if (state.streak > state.record) state.record = state.streak;
+        state.score += pointsPerCorrect * (1 + Math.floor(state.streak / streakBonusEvery));
+        window.__art.fx.particleBurst(scene, btn.x, btn.y, { color: 0xfacc15, count: 16 });
+        scene.tweens.add({ targets: mascot, scale: { from: 1, to: 1.2 }, yoyo: true, duration: 220 });
+        scene.time.delayedCall(900, advance);
+      } else {
+        window.__audio.buzz();
+        state.streak = 0;
+        scene.tweens.add({ targets: btn, x: { from: btn.x - 10, to: btn.x }, duration: 80, yoyo: true, repeat: 2 });
+        // Green-highlight the correct choice
+        choiceObjs.forEach(function (b) {
+          var label = (b.list || []).find(function (o) { return o && typeof o.text === "string"; });
+          if (label && label.text === card.correct) {
+            b.list.forEach(function (o) { if (o.fillStyle) o.fillStyle(0x16a34a, 1); });
+          }
+        });
+        if (card.explanation) {
+          explanationText = scene.add.text(640, 640, card.explanation, {
+            fontFamily: "system-ui", fontSize: "18px", color: "#fde68a", align: "center",
+            wordWrap: { width: 1100 }
+          }).setOrigin(0.5).setDepth(105);
+        }
+        scene.time.delayedCall(2200, advance);
+      }
+      refreshHud();
+    }
+
+    function advance() {
+      if (cardCard && cardCard._keyHandler) scene.input.keyboard.off("keydown", cardCard._keyHandler);
+      [cardCard, promptText, explanationText].forEach(function (o) { if (o) o.destroy(); });
+      choiceObjs.forEach(function (b) { b.destroy(); });
+      cardCard = promptText = explanationText = null; choiceObjs = [];
+      state.index++;
+      refreshHud();
+      if (state.index >= targetCards || state.index >= deck.length) return endQuest();
+      showCurrentCard();
+    }
+
+    function endQuest() {
+      state.phase = "end";
+      window.__audio.chime();
+      var card = window.__art.ui.card(scene, 640, 360, 720, 320, { fill: 0x0f172a, alpha: 0.85, border: true, borderColor: 0xffffff });
+      card.setDepth(100);
+      scene.add.text(640, 280, "QUEST COMPLETE!", { fontFamily: "system-ui", fontSize: "44px", color: "#fbbf24", fontStyle: "bold" }).setOrigin(0.5).setDepth(101);
+      scene.add.text(640, 360, "Final score: " + state.score, { fontFamily: "system-ui", fontSize: "28px", color: "#ffffff" }).setOrigin(0.5).setDepth(101);
+      scene.add.text(640, 410, "Best streak: " + state.record, { fontFamily: "system-ui", fontSize: "22px", color: "#cbd5e1" }).setOrigin(0.5).setDepth(101);
+      var again = scene.add.text(640, 470, "TAP or SPACE to play again", { fontFamily: "system-ui", fontSize: "20px", color: "#cbd5e1" }).setOrigin(0.5).setDepth(101);
+      scene.tweens.add({ targets: again, alpha: { from: 1, to: 0.5 }, duration: 700, yoyo: true, repeat: -1 });
+      scene.input.keyboard.once("keydown-SPACE", function () { scene.scene.restart(); });
+      scene.input.once("pointerdown", function () { scene.scene.restart(); });
+    }
+
+    // Title interactions: tap or SPACE to begin.
+    showTitle();
+    refreshHud();
+    scene.input.keyboard.once("keydown-SPACE", function () {
+      if (state.phase !== "title") return;
+      dismissTitle();
+      showCurrentCard();
+    });
+    scene.input.once("pointerdown", function () {
+      if (state.phase !== "title") return;
+      dismissTitle();
+      showCurrentCard();
+    });
+
+    // Post-process for every flashcard scene.
+    window.__art.fx.postProcess(scene, { bloom: true, vignette: true });
+
+    return { state: state };
+  }
+
+  // Bootstrap helper: builds a Phaser.Game for a given skeleton id +
+  // config. Used by the assembled HTML in place of an LLM-authored
+  // createGame() when the design's templateId is skeleton-backed.
+  window.__bootSkeleton = function (skeletonId, config) {
+    var skel = window.__skeletons[skeletonId];
+    if (!skel) throw new Error("Unknown skeleton: " + skeletonId);
+    return new Phaser.Game({
+      type: Phaser.AUTO,
+      width: 1280,
+      height: 720,
+      parent: "game",
+      backgroundColor: "#bfdbfe",
+      scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+      scene: {
+        create: function () {
+          window.__preloadArtAssets(this);
+          skel(this, config || {});
+        }
+      }
+    });
+  };
+
+  window.__skeletons = {
+    flashcardQuest: flashcardQuest
+  };
+})();
+</script>
+<script>
 // __HARNESS__ v2 (frozen — runtime reporting, screenshot capture, input fuzzing)
 (function () {
   function report(type, payload) {
@@ -1184,15 +1388,66 @@ ${meta}
 };`;
 }
 
+// Templates whose entire createGame() is owned by the harness skeleton.
+// When the design picks one of these, we IGNORE the LLM's gameCode and
+// produce a fixed bootstrap stub. The Builder stage can be skipped
+// entirely for these templates.
+const SKELETON_TEMPLATES: Record<string, string> = {
+  "flashcard-quest": "flashcardQuest",
+};
+
+export function isSkeletonTemplate(templateId: string): boolean {
+  return Object.prototype.hasOwnProperty.call(SKELETON_TEMPLATES, templateId);
+}
+
+// Build the configCode for a skeleton-backed template directly from the
+// design — the LLM doesn't author it. Returns a JS source string that
+// defines `const GAME_CONFIG = {...}` with the design's deck/theme/tunables.
+function skeletonConfig(design: GameDesign): string {
+  if (design.templateId === "flashcard-quest") {
+    const cfg = {
+      deck: design.flashcardDeck ?? [],
+      theme: design.theme ?? {
+        name: "default",
+        background: "#1e1b4b",
+        accent: "#facc15",
+        mascotEmoji: "✨",
+      },
+      targetCards:
+        design.configSpec.find((c) => /target|count|cards/i.test(c.key))
+          ?.value ?? Math.min(10, design.flashcardDeck?.length ?? 10),
+      streakBonusEvery:
+        design.configSpec.find((c) => /streak/i.test(c.key))?.value ?? 5,
+      pointsPerCorrectAnswer:
+        design.configSpec.find((c) => /point|score/i.test(c.key))?.value ?? 10,
+    };
+    return `const GAME_CONFIG = ${JSON.stringify(cfg, null, 2)};`;
+  }
+  return "const GAME_CONFIG = {};";
+}
+
+// Fixed bootstrap stub used in place of the Builder LLM's gameCode for
+// skeleton-backed templates. No LLM input, nothing to break.
+function skeletonGameCode(templateId: string): string {
+  const skel = SKELETON_TEMPLATES[templateId];
+  return `function createGame() { return window.__bootSkeleton(${JSON.stringify(skel)}, GAME_CONFIG); }`;
+}
+
 export function assembleGameHtml(
   configCode: string,
   gameCode: string,
   design?: GameDesign,
 ): string {
+  // Skeleton templates: ignore the LLM-provided code blocks and use the
+  // fixed config + bootstrap stub. The harness owns the entire scene.
+  const useSkel = !!(design && isSkeletonTemplate(design.templateId));
+  const finalConfig = useSkel && design ? skeletonConfig(design) : configCode;
+  const finalGame =
+    useSkel && design ? skeletonGameCode(design.templateId) : gameCode;
   // .replace with a function avoids `$` being treated as a special
   // replacement pattern inside LLM-generated code.
   return skeleton()
-    .replace(CONFIG_MARK, () => inert(configCode))
+    .replace(CONFIG_MARK, () => inert(finalConfig))
     .replace(EXHIBIT_MARK, () => bakeExhibit(design))
-    .replace(GAME_MARK, () => inert(gameCode));
+    .replace(GAME_MARK, () => inert(finalGame));
 }

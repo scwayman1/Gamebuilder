@@ -17,6 +17,7 @@ import {
   PHASER_ARCADE_TEMPLATE,
   assembleGameHtml,
   getTemplate,
+  isSkeletonTemplate,
   templateForCompanionType,
   templateMenu,
 } from "../game/template";
@@ -160,6 +161,37 @@ export async function runGameEngine(
       });
       return fail(`Game Designer failed: ${msg}`);
     }
+  }
+
+  // ---- Skeleton fast-path: when the design's template is fully
+  // implemented inside the harness, the LLM doesn't need to write game
+  // code at all. The assembler produces a fixed bootstrap stub from the
+  // design's deck/theme/tunables. Skip the Builder + static-gate loop
+  // entirely. This eliminates the biggest source of broken artifacts
+  // for templates we own end-to-end (Flashcard Quest today, more soon).
+  if (isSkeletonTemplate(design.templateId)) {
+    const stub = { configCode: "", gameCode: "" };
+    const artifact: GameArtifact = {
+      templateId: design.templateId,
+      title: design.title,
+      design,
+      code: stub,
+      html: assembleGameHtml(stub.configCode, stub.gameCode, design),
+      createdAt: Date.now(),
+      repairCount: 0,
+    };
+    return {
+      ok: true,
+      artifact,
+      meta: {
+        totalLatencyMs: Date.now() - t0,
+        stages,
+        revisionCount: 0,
+        review: null,
+        residualIssues: [],
+        keyFingerprint,
+      },
+    };
   }
 
   // ---- Stage 2: Builder, with one static-gate repair pass ----
