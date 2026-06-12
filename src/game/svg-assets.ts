@@ -373,14 +373,39 @@ function shade(hex: string, amount: number): string {
 // Base64 encoder that works on Node and browsers (template assembly
 // happens on the server). For multi-byte chars in SVGs we need
 // Buffer-based encoding on Node, btoa on browsers.
+//
+// CRITICAL: also injects explicit width/height attrs derived from the
+// SVG's viewBox. Without these, an SVG loaded as an HTMLImage defaults
+// to 300x150 (the HTML spec replaced-element default for a missing
+// intrinsic size) — viewBox alone is not enough. Phaser would then
+// register the texture at the wrong dimensions and every sprite
+// rendered as a stretched 150-pixel-tall smear. This is what caused the
+// "broken" colored stripes across the canvas.
 export function svgToDataUri(svg: string): string {
+  const fixed = ensureSvgDimensions(svg);
   const b64 =
     typeof Buffer !== "undefined"
-      ? Buffer.from(svg, "utf8").toString("base64")
+      ? Buffer.from(fixed, "utf8").toString("base64")
       : ((globalThis as { btoa?: (s: string) => string }).btoa?.(
-          unescape(encodeURIComponent(svg)),
+          unescape(encodeURIComponent(fixed)),
         ) ?? "");
   return `data:image/svg+xml;base64,${b64}`;
+}
+
+function ensureSvgDimensions(svg: string): string {
+  const rootMatch = svg.match(/<svg\b([^>]*)>/);
+  if (!rootMatch) return svg;
+  const attrs = rootMatch[1] ?? "";
+  if (/\bwidth\s*=/.test(attrs) && /\bheight\s*=/.test(attrs)) return svg;
+  const vbMatch = attrs.match(
+    /viewBox\s*=\s*"\s*[\d.\-]+\s+[\d.\-]+\s+([\d.]+)\s+([\d.]+)\s*"/,
+  );
+  if (!vbMatch) return svg;
+  const w = vbMatch[1] ?? "";
+  const h = vbMatch[2] ?? "";
+  if (!w || !h) return svg;
+  const newAttrs = `${attrs} width="${w}" height="${h}"`;
+  return svg.replace(rootMatch[0], `<svg${newAttrs}>`);
 }
 
 // Library bundled into the harness. Keep this list curated.

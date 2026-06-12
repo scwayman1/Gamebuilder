@@ -171,7 +171,7 @@ export const LAB_EXHIBIT_TEMPLATE: GameTemplate = {
 CANVAS: 1280x720, Phaser.AUTO, Scale.FIT + CENTER_BOTH.
 
 THIS TEMPLATE'S SHAPE:
-- GAME_CONFIG MUST include \`exhibit\` (the object from design.exhibit with sceneDescription, animationDescription, variables[], outcomes[]) plus all numeric configSpec keys.
+- The harness exposes \`window.__exhibit\` with sceneDescription, animationDescription, variables[], outcomes[] — READ ALL EXHIBIT DATA FROM \`window.__exhibit\`. Do NOT try to thread the exhibit through GAME_CONFIG — the harness already has it. Use GAME_CONFIG ONLY for the numeric configSpec keys (animation durations, etc.).
 - One Phaser scene. NOT a game with score/win — an EXHIBIT the student plays with.
 - The student is not under stakes. They drag sliders, press Run, watch the animation, read the outcome, drag again. This is teaching, not testing.
 
@@ -372,41 +372,51 @@ function skeleton(): string {
 // data: URIs so the iframe never touches the network. The CSP allows
 // img-src data:, so Phaser can load these via textures.addBase64.)
 window.__svgAssets = ${JSON.stringify(svgLib)};
-// Track per-key state across the whole game: pending vs ready. addBase64
-// is asynchronous — the texture is not actually registered until the
-// HTMLImageElement decodes. Without this guard, calling sprite("mountain")
-// three times in the same frame triggers three addBase64 calls in flight
-// before the first completes → "Texture key already in use" on retries.
-window.__assetState = window.__assetState || {};
+// Preload all SVG assets as HTMLImageElement instances at HTML load —
+// BEFORE any Phaser scene runs. Phaser's addBase64 is asynchronous: by
+// the time the SVG decodes, GameObjects already created using its
+// texture don't re-render at the right size. So we decode everything
+// up front and register synchronously via textures.addImage() when a
+// scene first asks for an asset.
+window.__assetImages = {};        // key -> decoded HTMLImageElement
+window.__assetReady = new Promise(function (resolve) {
+  var keys = Object.keys(window.__svgAssets);
+  if (keys.length === 0) return resolve();
+  var remaining = keys.length;
+  function done() {
+    remaining--;
+    if (remaining <= 0) resolve();
+  }
+  for (var i = 0; i < keys.length; i++) {
+    (function (key) {
+      var img = new Image();
+      img.onload = function () {
+        window.__assetImages[key] = img;
+        done();
+      };
+      img.onerror = function () {
+        // Eat — texture will fall back to Phaser placeholder if used.
+        done();
+      };
+      img.src = window.__svgAssets[key];
+    })(keys[i]);
+  }
+});
+
 window.__ensureAsset = function (scene, key) {
   var fullKey = "art." + key;
   if (!scene || !scene.textures) return fullKey;
-  if (window.__assetState[fullKey] === "ready" || scene.textures.exists(fullKey)) {
-    window.__assetState[fullKey] = "ready";
+  if (scene.textures.exists(fullKey)) return fullKey;
+  var preloaded = window.__assetImages[key];
+  if (preloaded && preloaded.complete && preloaded.naturalWidth > 0) {
+    try { scene.textures.addImage(fullKey, preloaded); } catch (e) {}
     return fullKey;
   }
-  if (window.__assetState[fullKey] === "pending") return fullKey;
-  var src = window.__svgAssets[key];
-  if (!src) return null;
-  window.__assetState[fullKey] = "pending";
-  try {
-    scene.textures.once("addtexture-" + fullKey, function () {
-      window.__assetState[fullKey] = "ready";
-    });
-    scene.textures.addBase64(fullKey, src);
-  } catch (e) {
-    // Defensive: another concurrent call already registered. Mark ready
-    // and move on rather than letting the error escape.
-    window.__assetState[fullKey] = "ready";
-  }
+  // Fallback: not yet decoded. Register a lazy addBase64 — best effort.
+  try { scene.textures.addBase64(fullKey, window.__svgAssets[key]); } catch (e) {}
   return fullKey;
 };
-// Preload all SVG assets eagerly when a scene starts so that subsequent
-// sprite() calls find them already registered, the first frame paints
-// the real textures instead of the placeholder, and there is no
-// addBase64 race during gameplay. Templates should call
-// \`window.__preloadArtAssets(this)\` from preload() or at the very top
-// of create() before any sprite() call.
+
 window.__preloadArtAssets = function (scene) {
   if (!scene || !scene.textures) return;
   var keys = Object.keys(window.__svgAssets);
@@ -1015,11 +1025,12 @@ ${GAME_MARK}
 <script>
 // __BOOT__ (frozen)
 window.addEventListener("load", function () {
-  try {
-    if (typeof Phaser === "undefined") throw new Error("Phaser failed to load from /vendor/phaser.min.js");
-    if (typeof createGame !== "function") throw new Error("Template contract violation: createGame() is not defined");
-    // Stash the instance so the harness can drive renderer.snapshot().
-    window.__game = createGame();
+  function boot() {
+    try {
+      if (typeof Phaser === "undefined") throw new Error("Phaser failed to load from /vendor/phaser.min.js");
+      if (typeof createGame !== "function") throw new Error("Template contract violation: createGame() is not defined");
+      // Stash the instance so the harness can drive renderer.snapshot().
+      window.__game = createGame();
     var g = window.__game;
     if (g && g.scene && g.scene.scenes) {
       g.events.once("ready", function () {
@@ -1058,9 +1069,21 @@ window.addEventListener("load", function () {
         }, 600);
       });
     }
-    if (window.__reportReady) window.__reportReady();
-  } catch (e) {
-    console.error("Boot failure: " + (e && e.message ? e.message : String(e)));
+      if (window.__reportReady) window.__reportReady();
+    } catch (e) {
+      console.error("Boot failure: " + (e && e.message ? e.message : String(e)));
+    }
+  }
+  // Wait for SVG assets to decode before booting Phaser so every
+  // texture is at its real size on first use. 1500ms hard timeout so
+  // a broken asset never blocks boot forever.
+  var booted = false;
+  function once() { if (booted) return; booted = true; boot(); }
+  if (window.__assetReady) {
+    window.__assetReady.then(once);
+    setTimeout(once, 1500);
+  } else {
+    once();
   }
 });
 </script>
@@ -1076,8 +1099,15 @@ function inert(code: string): string {
 // Server-bake formula evaluators for Lab Exhibit. The LLM never touches
 // Function() at runtime; we compose closures at assembly time from the
 // design's pre-validated formula strings (each must pass isFormulaSafe).
-// Exposes window.__outcomes[outcomeId](values) returning a number, and
-// window.__outcomeMeta[outcomeId] = { label, unit, isPrimary }.
+// Exposes:
+//   window.__exhibit       — the full design.exhibit (sceneDescription,
+//                            animationDescription, variables[], outcomes[]).
+//                            The Builder reads sliders/outcomes from here
+//                            so it can't forget to copy data into
+//                            GAME_CONFIG.
+//   window.__outcomes[id]  — a closure that returns a number for given
+//                            variable values.
+//   window.__outcomeMeta[id] — { label, unit, isPrimary }.
 function bakeExhibit(design?: GameDesign): string {
   if (!design?.exhibit) return "";
   const varIds = design.exhibit.variables.map((v) => v.id);
@@ -1099,7 +1129,10 @@ function bakeExhibit(design?: GameDesign): string {
         })}`,
     )
     .join(",\n");
-  return `window.__outcomes = {
+  // The full exhibit struct is also exposed verbatim so the Builder
+  // doesn't have to thread it through GAME_CONFIG.
+  return `window.__exhibit = ${JSON.stringify(design.exhibit)};
+window.__outcomes = {
 ${fns}
 };
 window.__outcomeMeta = {
