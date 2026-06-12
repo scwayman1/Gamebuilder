@@ -1,5 +1,6 @@
 "use client";
 
+import { DictationButton } from "@/components/dictation-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -109,13 +110,19 @@ export function BriefForm() {
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
           <Field label="Topic or unit name">
-            <input
-              required
-              value={brief.topic}
-              onChange={(e) => update("topic", e.target.value)}
-              placeholder="e.g. Throwing a football, Ecosystem balance, Levers"
-              className={inputCls}
-            />
+            <div className="relative">
+              <input
+                required
+                value={brief.topic}
+                onChange={(e) => update("topic", e.target.value)}
+                placeholder="e.g. Throwing a football, Ecosystem balance, Levers"
+                className={cn(inputCls, "pr-10")}
+              />
+              <DictationButton
+                currentValue={brief.topic}
+                onTranscript={(v) => update("topic", v)}
+              />
+            </div>
           </Field>
           <Field label="Grade band">
             <select
@@ -153,13 +160,19 @@ export function BriefForm() {
               label="Learning objective"
               hint="One sentence. What should a student be able to do after?"
             >
-              <textarea
-                required
-                value={brief.learningObjective}
-                onChange={(e) => update("learningObjective", e.target.value)}
-                placeholder="e.g. Students learn how predator and prey populations balance each other, and how disturbances shift that balance."
-                className={textareaCls}
-              />
+              <div className="relative">
+                <textarea
+                  required
+                  value={brief.learningObjective}
+                  onChange={(e) => update("learningObjective", e.target.value)}
+                  placeholder="e.g. Students learn how predator and prey populations balance each other, and how disturbances shift that balance."
+                  className={cn(textareaCls, "pr-10")}
+                />
+                <DictationButton
+                  currentValue={brief.learningObjective}
+                  onTranscript={(v) => update("learningObjective", v)}
+                />
+              </div>
             </Field>
           </div>
         </CardContent>
@@ -193,11 +206,17 @@ export function BriefForm() {
               label="Source material / existing lesson"
               hint="Paste a summary, link, or unit description."
             >
-              <textarea
-                value={brief.sourceMaterial}
-                onChange={(e) => update("sourceMaterial", e.target.value)}
-                className={textareaCls}
-              />
+              <div className="relative">
+                <textarea
+                  value={brief.sourceMaterial}
+                  onChange={(e) => update("sourceMaterial", e.target.value)}
+                  className={cn(textareaCls, "pr-10")}
+                />
+                <DictationButton
+                  currentValue={brief.sourceMaterial}
+                  onTranscript={(v) => update("sourceMaterial", v)}
+                />
+              </div>
             </Field>
           </div>
           <Field label="Required standards">
@@ -209,11 +228,17 @@ export function BriefForm() {
             />
           </Field>
           <Field label="Classroom constraints">
-            <input
-              value={brief.classroomConstraints}
-              onChange={(e) => update("classroomConstraints", e.target.value)}
-              className={inputCls}
-            />
+            <div className="relative">
+              <input
+                value={brief.classroomConstraints}
+                onChange={(e) => update("classroomConstraints", e.target.value)}
+                className={cn(inputCls, "pr-10")}
+              />
+              <DictationButton
+                currentValue={brief.classroomConstraints}
+                onTranscript={(v) => update("classroomConstraints", v)}
+              />
+            </div>
           </Field>
         </CardContent>
       </Card>
